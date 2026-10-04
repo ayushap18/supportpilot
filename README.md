@@ -4,7 +4,7 @@
 
 **Investigate technical support tickets, inspect the evidence, and review a response draft.**
 
-SupportPilot is a working portfolio MVP for applied AI engineering. It supports **RelayDesk**, a fictional webhook delivery SaaS, using synthetic documentation, accounts, service health, and incident records.
+SupportPilot is a standalone operational pilot for a small support team: manage tickets, maintain a knowledge library, investigate issues, and review evidence-backed response drafts. Its default **RelayDesk** demo uses a fictional webhook SaaS and synthetic records.
 
 > **Current status:** the application works in fixture mode. The live OpenAI adapter and Render deployment workflow are implemented, but real provider validation, public hosting, and human-reviewed AI quality gates remain pending credentials and release work.
 
@@ -12,17 +12,16 @@ SupportPilot is a working portfolio MVP for applied AI engineering. It supports 
 
 ## What works
 
-- Create and persist support tickets with a bounded optional text log.
-- Retrieve version-aware documentation with workspace filtering and stable citations.
-- Investigate using three typed, read-only account/service/incident tools.
-- Return a resolution draft, request missing details, or escalate.
-- Inspect cited source excerpts, tool results, latency, and workflow usage.
-- Approve or reject the exact draft revision with a recorded reviewer identity.
-- Enforce workspace access, idempotency, hourly limits, execution budgets, and restart recovery.
-- Compare retrieval-only and tool-assisted behavior through reproducible evaluations.
-- Work in a responsive dark interface with keyboard-accessible dialogs, evidence tabs, and human review controls.
+- Overview with real ticket counts, current review backlog, seven-day UTC trends, and readiness items.
+- Searchable, paginated tickets with status, priority, assignment, editable context, and internal notes.
+- Workspace knowledge with versioned sources, indexed search, archive/restore, and admin-only mutations.
+- Version-aware, workspace-scoped retrieval and bounded investigations with inspectable evidence and trace.
+- Current draft review queue, approve/reject decisions, and guards against stale ticket edits or draft approvals.
+- Activity history, configured team roles, execution budgets, hourly limits, and restart recovery.
+- Responsive dark Overview, Tickets, Review queue, Knowledge, Activity, and Workspace views.
+- Reproducible fixture evaluations and prepared CI/deployment workflows.
 
-Approval records a decision inside SupportPilot. It does not send a customer message or execute an account change.
+Approval records a decision inside SupportPilot. Ticket resolution is a separate operator action. Customer delivery and external help-desk intake are not connected. Follow the [user guide](docs/USER_GUIDE.md) or inspect the [real-use implementation plan](docs/REAL_USE_PLAN.md).
 
 ## Interface
 
@@ -41,7 +40,9 @@ SupportPilot retrieves the v2 signature documentation and drafts guidance about 
 | Mode | Retrieval | Draft generation | Provider credentials |
 | --- | --- | --- | --- |
 | Fixture, default | Lexical feature hashing and text ranking | Deterministic demonstration routing | None |
-| Live | OpenAI embeddings with hybrid retrieval | Schema-validated OpenAI Responses output and bounded tool plans | Required |
+| Live | OpenAI embeddings over workspace documents | Schema-validated OpenAI Responses drafts; external tools disabled | Required |
+
+Fixture mode includes synthetic tools and example documents. Live mode excludes synthetic seed documents and disables account/service/incident tools until real adapters exist; add your own knowledge first.
 
 Fixture results demonstrate application behavior. They do **not** establish live-model accuracy. The UI labels the active mode. Real provider requests have not yet been verified; the live adapter is covered by mocked contract tests.
 
@@ -64,6 +65,8 @@ uvicorn supportpilot.app:create_app --factory --host 127.0.0.1 --port 8000
 
 Open **http://127.0.0.1:8000**. Open your private `.env` locally and copy the `token` value inside `SUPPORTPILOT_API_TOKENS_JSON` into the workspace connection form. The token stays in browser memory and clears on reload. The configuration script refuses to overwrite an existing `.env`.
 
+Token entries accept an optional `role`: `admin` can manage knowledge, while `agent` can work tickets and review drafts. Legacy entries default to admin. Configure identities on the server; see [team configuration](docs/DEPLOYMENT.md#workspace-identities).
+
 This setup uses a persistent SQLite database in `.state/`. For PostgreSQL/pgvector, use `docker compose up --build` after creating `.env`. PostgreSQL integrations run in GitHub CI.
 
 For frontend development, run the API on port 8000 and `npm --prefix frontend run dev` in another terminal. Vite proxies API requests.
@@ -80,7 +83,7 @@ npm --prefix frontend exec playwright install chromium
 npm --prefix frontend run test:browser
 ```
 
-Build the frontend and stop local API servers before browser tests: Playwright serves the compiled UI on port 8000 with production security headers and an isolated fixture database. Four Chromium tests cover investigation/approval, missing details/escalation, keyboard focus/tabs, and the mobile tool trace/navigation.
+Build the frontend and stop local API servers before browser tests: Playwright serves the compiled UI on port 8000 with production security headers and an isolated fixture database. Browser coverage exercises investigation/review, ticket operations, knowledge management, keyboard interaction, and responsive navigation.
 
 CI runs backend tests against SQLite and PostgreSQL, a fixture evaluation regression gate, frontend compilation, Chromium workflow tests, and a Docker build/smoke test. The local PostgreSQL integration test is skipped unless `SUPPORTPILOT_TEST_POSTGRES_URL` points to a dedicated test database.
 
@@ -101,7 +104,7 @@ See the [development report](docs/reports/development/REPORT.md), [held-out repo
 
 [Deploy with a Render Blueprint](https://render.com/deploy?repo=https://github.com/ayushap18/supportpilot), then follow [the deployment guide](docs/DEPLOYMENT.md).
 
-The Docker service serves both the UI and API. A private PostgreSQL database stores tickets, document vectors, investigations, and reviews. Successful main-branch CI can request a deployment of the tested commit using the private `RENDER_DEPLOY_HOOK_URL` repository secret. No public service has been provisioned yet.
+The Docker service serves both the UI and API. A private PostgreSQL database stores tickets, notes, activity, knowledge sources/vectors, investigations, and reviews. Successful main-branch CI can request a deployment of the tested commit using the private `RENDER_DEPLOY_HOOK_URL` repository secret. No public service has been provisioned yet.
 
 ## Milestones
 
@@ -116,10 +119,11 @@ The Docker service serves both the UI and API. A private PostgreSQL database sto
 
 ## Project documents
 
-- [Implementation plan](docs/PLAN.md) and acceptance checklists.
+- [User guide](docs/USER_GUIDE.md), [real-use plan](docs/REAL_USE_PLAN.md), and [release checklist](docs/RELEASE_CHECKLIST.md).
+- [Original implementation plan](docs/PLAN.md) and acceptance checklists.
 - [Architecture](docs/ARCHITECTURE.md) and [runtime decision record](docs/decisions/0001-mvp-runtime.md).
 - [Evaluation plan](docs/EVALUATION.md) and [evaluation runner](evals/README.md).
 - [Deployment and operations](docs/DEPLOYMENT.md).
 - API contracts are available at `/openapi.json`.
 
-Use synthetic inputs and keep credentials outside version control. See the deployment guide for retention, request limits, and the current MVP's operational boundaries.
+Use synthetic inputs and keep credentials outside version control. See the deployment guide for retention, request limits, and the pilot's operational boundaries.

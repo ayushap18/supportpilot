@@ -11,6 +11,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from supportpilot.config import Settings
+from supportpilot.knowledge import build_knowledge_router
+from supportpilot.operations import build_operations_router
 from supportpilot.provider import Provider
 from supportpilot.redaction import redact
 from supportpilot.retention import purge_expired
@@ -94,7 +96,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/config")
     def config():
-        return {"mode": settings.mode, "product": "RelayDesk"}
+        return {
+            "mode": settings.mode,
+            "product": "RelayDesk" if settings.mode == "fixture" else "Support workspace",
+        }
 
     @app.get("/api/session")
     def session_identity(caller: dict = Depends(identity)):
@@ -102,7 +107,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/examples")
     def examples(caller: dict = Depends(identity)):
-        if caller["workspace_id"] != "demo":
+        if caller["workspace_id"] != "demo" or settings.mode != "fixture":
             return []
         cases = json.loads((settings.data_dir / "development.json").read_text())
         return [{"id": item["id"], "ticket": item["ticket"]} for item in cases]
@@ -204,6 +209,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ticket_id=ticket_id,
                 workspace_id=caller["workspace_id"],
                 state="queued",
+                ticket_revision=ticket.revision,
                 created_at=datetime.now(UTC),
                 mode=settings.mode,
             )
@@ -232,6 +238,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             provider,
             settings,
             tools=tools,
+            allow_tools=settings.mode == "fixture",
         )
         with database.session() as session:
             row = session.get(InvestigationRow, investigation.id)
@@ -267,6 +274,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         investigation_id: str, payload: ReviewCreate, caller: dict = Depends(identity)
     ):
         with database.session() as session:
+            # SQLite has no row-level FOR UPDATE. Serialize the short review transaction
+            # so a concurrent ticket edit cannot slip between validation and approval.
+            if database.engine.dialect.name == "sqlite":
+                session.execute(text("BEGIN IMMEDIATE"))
             parent = session.scalar(
                 select(InvestigationRow)
                 .where(
@@ -280,6 +291,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             investigation = Investigation.model_validate(parent.payload)
             if investigation.state != "awaiting_review" or investigation.draft is None:
                 raise HTTPException(409, "No reviewable draft exists")
+            ticket_row = session.scalar(
+                select(TicketRow)
+                .where(
+                    TicketRow.id == investigation.ticket_id,
+                    TicketRow.workspace_id == caller["workspace_id"],
+                )
+                .with_for_update()
+            )
+            if (
+                ticket_row is None
+                or Ticket.model_validate(ticket_row.payload).revision
+                != investigation.ticket_revision
+            ):
+                raise HTTPException(
+                    409,
+                    "Ticket changed since this investigation; investigate again before reviewing",
+                )
             if payload.draft_revision != investigation.draft_revision:
                 raise HTTPException(409, "Stale draft revision")
             review = Review(
@@ -304,6 +332,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 session.rollback()
                 raise HTTPException(409, "This draft revision has already been reviewed") from exc
             return review
+
+    app.include_router(build_operations_router(database, identity, settings))
+    app.include_router(build_knowledge_router(database, retrieval, identity, settings))
 
     if settings.frontend_dir.exists():
         app.mount("/", StaticFiles(directory=settings.frontend_dir, html=True), name="frontend")

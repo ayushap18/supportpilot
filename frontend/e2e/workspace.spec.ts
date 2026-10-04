@@ -1,6 +1,105 @@
 import { expect, test } from "@playwright/test";
 
 const TOKEN = "browser-test-token-at-least-24-characters";
+const AGENT_TOKEN = "browser-agent-token-at-least-24-characters";
+const OTHER_TOKEN = "browser-other-token-at-least-24-characters";
+const authorization = (token = TOKEN) => ({ Authorization: `Bearer ${token}` });
+
+test("production API isolates workspaces, enforces knowledge roles, and rejects stale drafts", async ({
+  request,
+}) => {
+  const created = await request.post("/api/tickets", {
+    headers: authorization(),
+    data: {
+      subject: "Browser isolation signature migration",
+      description:
+        "After migrating to v2, webhook signature verification fails.",
+      product_version: "v2",
+      account_id: null,
+      log: "Signature mismatch using the old header",
+    },
+  });
+  expect(created.status()).toBe(201);
+  const ticket = await created.json();
+  const other = await request.get(`/api/tickets/${ticket.id}`, {
+    headers: authorization(OTHER_TOKEN),
+  });
+  expect(other.status()).toBe(404);
+  const investigationResponse = await request.post(
+    `/api/tickets/${ticket.id}/investigations`,
+    {
+      headers: {
+        ...authorization(),
+        "Idempotency-Key": `browser-${ticket.id}`,
+      },
+    },
+  );
+  expect(investigationResponse.ok()).toBe(true);
+  const investigation = await investigationResponse.json();
+  expect(investigation.state).toBe("awaiting_review");
+  const changed = await request.patch(`/api/tickets/${ticket.id}`, {
+    headers: authorization(),
+    data: {
+      expected_revision: ticket.revision,
+      description: "Updated v2 webhook context after investigation.",
+    },
+  });
+  expect(changed.ok()).toBe(true);
+  const staleEdit = await request.patch(`/api/tickets/${ticket.id}`, {
+    headers: authorization(),
+    data: { expected_revision: ticket.revision, priority: "urgent" },
+  });
+  expect(staleEdit.status()).toBe(409);
+  const staleReview = await request.post(
+    `/api/investigations/${investigation.id}/reviews`,
+    {
+      headers: authorization(),
+      data: {
+        draft_revision: investigation.draft_revision,
+        decision: "approve",
+        note: "Must reject stale context",
+      },
+    },
+  );
+  expect(staleReview.status()).toBe(409);
+  const queue = await request.get("/api/queue?review=pending", {
+    headers: authorization(),
+  });
+  expect(queue.ok()).toBe(true);
+  expect(
+    (await queue.json()).items.map((item: { id: string }) => item.id),
+  ).not.toContain(ticket.id);
+  const forbidden = await request.post("/api/knowledge/documents", {
+    headers: authorization(AGENT_TOKEN),
+    data: {
+      title: "Agent cannot publish",
+      body: "This document must never enter the knowledge index.",
+      product_version: "v2",
+      source_path: "internal/forbidden",
+    },
+  });
+  expect(forbidden.status()).toBe(403);
+  const searchable = await request.post("/api/knowledge/search", {
+    headers: authorization(AGENT_TOKEN),
+    data: { query: "webhook signature", product_version: "v2" },
+  });
+  expect(searchable.ok()).toBe(true);
+  const operations = await request.get("/api/operations", {
+    headers: authorization(),
+  });
+  expect(operations.ok()).toBe(true);
+  const dashboard = await operations.json();
+  expect(dashboard.counts.awaiting_review).toBe((await queue.json()).total);
+  expect(dashboard.trends).toHaveLength(7);
+  expect(dashboard.mode).toBe("fixture");
+  expect(dashboard.tool_mode).toBe("synthetic");
+  expect(
+    dashboard.members.map(
+      (member: { reviewer_id: string }) => member.reviewer_id,
+    ),
+  ).not.toContain("other-reviewer");
+  expect(JSON.stringify(dashboard)).not.toContain(TOKEN);
+});
 
 test("investigate a migration ticket, inspect evidence, and approve the draft", async ({
   page,
@@ -26,6 +125,14 @@ test("investigate a migration ticket, inspect evidence, and approve the draft", 
   ).toBeVisible();
   await page.getByLabel("Workspace token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect workspace" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your support, in focus.", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: "../docs/screenshots/overview.png",
+    fullPage: true,
+    animations: "disabled",
+  });
   await page.getByRole("button", { name: "New ticket" }).click();
   await page.getByLabel("Start with an example").selectOption("dev-03");
   await page
@@ -114,6 +221,7 @@ test("ticket dialog traps focus, closes with Escape, and tabs support arrow keys
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
   await expect(trigger).toBeFocused();
+  await page.getByRole("button", { name: "Tickets", exact: true }).click();
   const evidence = page.getByRole("tab", { name: /^Evidence/ });
   await evidence.focus();
   await page.keyboard.press("ArrowRight");
@@ -140,7 +248,7 @@ test("mobile workspace fits the viewport and handles a rejected token", async ({
     page.getByRole("heading", { name: "Bring the context." }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Open navigation" }).click();
-  await page.getByRole("button", { name: "Ticket inbox", exact: true }).click();
+  await page.getByRole("button", { name: "Tickets", exact: true }).click();
   await page.getByRole("button", { name: "New ticket" }).click();
   await page.getByLabel("Start with an example").selectOption("dev-04");
   await page
@@ -170,4 +278,160 @@ test("mobile workspace fits the viewport and handles a rejected token", async ({
     fullPage: true,
     animations: "disabled",
   });
+});
+
+test("dashboard supports triage, notes, stale context and knowledge lifecycle", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByLabel("Workspace token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect workspace" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your support, in focus.", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "New ticket", exact: true }).click();
+  await page.getByLabel("Start with an example").selectOption("dev-03");
+  await page
+    .getByRole("button", { name: "Create ticket", exact: true })
+    .click();
+  for (const [label, value] of [
+    ["Priority", "urgent"],
+    ["Assignee", "browser-agent"],
+    ["Ticket status", "in_progress"],
+  ]) {
+    const field = page.getByLabel(label, { exact: true });
+    await field.selectOption(value);
+    await expect(field).toBeEnabled();
+    await expect(field).toHaveValue(value);
+  }
+  await page
+    .getByLabel("Internal note", { exact: true })
+    .fill(
+      "Reproduced with the customer payload; checking migration instructions.",
+    );
+  await page.getByRole("button", { name: "Add note", exact: true }).click();
+  await expect(
+    page.getByText(
+      "Reproduced with the customer payload; checking migration instructions.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Investigate ticket", exact: true })
+    .click();
+  await expect(
+    page.getByText("Resolution drafted", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Edit context", exact: true }).click();
+  const context = page
+    .getByRole("dialog")
+    .filter({
+      has: page.getByRole("heading", {
+        name: "Edit ticket context",
+        exact: true,
+      }),
+    });
+  await context
+    .getByRole("textbox", { name: "Ticket description", exact: true })
+    .fill(
+      "After migrating to v2, webhook signature verification fails. The customer confirmed that the old header is still configured.",
+    );
+  await context
+    .getByRole("button", { name: "Save context", exact: true })
+    .click();
+  await expect(context).not.toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Approve draft", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Investigate again", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Approve draft", exact: true }),
+  ).toBeEnabled();
+  await page
+    .getByRole("button", { name: "Approve draft", exact: true })
+    .click();
+  await expect(page.getByText("Draft approved", { exact: true })).toBeVisible();
+  await page
+    .getByLabel("Ticket status", { exact: true })
+    .selectOption("resolved");
+  await expect(page.getByLabel("Ticket status", { exact: true })).toBeEnabled();
+  await expect(page.getByLabel("Ticket status", { exact: true })).toHaveValue(
+    "resolved",
+  );
+  await page.getByRole("button", { name: "Knowledge", exact: true }).click();
+  await page.getByRole("button", { name: "Add document", exact: true }).click();
+  const modal = page
+    .getByRole("dialog")
+    .filter({
+      has: page.getByRole("heading", { name: "Add document", exact: true }),
+    });
+  await modal
+    .getByLabel("Document title", { exact: true })
+    .fill("Browser orchid recovery guide");
+  await modal
+    .getByRole("textbox", { name: "Document content", exact: true })
+    .fill(
+      "To recover an orchid session in v2, open Settings and rotate the orchid session key. Retain the recovery reference for the support team.",
+    );
+  await modal
+    .getByLabel("Document version", { exact: true })
+    .selectOption("v2");
+  await modal
+    .getByLabel("Source path", { exact: true })
+    .fill("internal/orchid-recovery.md");
+  await modal
+    .getByRole("button", { name: "Save document", exact: true })
+    .click();
+  await expect(modal).not.toBeVisible();
+  const card = page.locator(".document-card").filter({
+    has: page.getByRole("heading", {
+      name: "Browser orchid recovery guide",
+      exact: true,
+    }),
+  });
+  await expect(card).toBeVisible();
+  await page
+    .getByLabel("Knowledge search", { exact: true })
+    .fill("orchid recovery session key");
+  await page
+    .getByLabel("Knowledge version", { exact: true })
+    .selectOption("v2");
+  const search = page.getByRole("button", {
+    name: "Search knowledge",
+    exact: true,
+  });
+  const result = page
+    .locator(".evidence-card")
+    .filter({ hasText: "Browser orchid recovery guide" });
+  await search.click();
+  await expect(result).toBeVisible();
+  await card.getByRole("button", { name: "Archive", exact: true }).click();
+  await expect(
+    card.getByRole("button", { name: "Restore", exact: true }),
+  ).toBeVisible();
+  await search.click();
+  await expect(
+    page.getByRole("heading", { name: "Search results", exact: true }),
+  ).toBeVisible();
+  await expect(result).toHaveCount(0);
+  await card.getByRole("button", { name: "Restore", exact: true }).click();
+  await expect(
+    card.getByRole("button", { name: "Archive", exact: true }),
+  ).toBeVisible();
+  await search.click();
+  await expect(result).toBeVisible();
+  await page.screenshot({
+    path: "../docs/screenshots/knowledge.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await expect(page.locator(".activity-list")).toBeVisible();
+  await page.getByRole("button", { name: "Workspace", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Readiness checks", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("browser-agent", { exact: true })).toBeVisible();
 });

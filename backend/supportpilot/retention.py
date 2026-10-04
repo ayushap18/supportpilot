@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, select
 
-from supportpilot.storage import InvestigationRow, ReviewRow, TicketRow
+from supportpilot.storage import ActivityRow, InvestigationRow, NoteRow, ReviewRow, TicketRow
 
 
 def purge_expired(database, days: int):
@@ -20,6 +20,8 @@ def purge_expired(database, days: int):
             ).all()
             session.execute(delete(ReviewRow).where(ReviewRow.investigation_id.in_(investigations)))
             session.execute(delete(InvestigationRow).where(InvestigationRow.ticket_id.in_(expired)))
+            session.execute(delete(NoteRow).where(NoteRow.ticket_id.in_(expired)))
+            session.execute(delete(ActivityRow).where(ActivityRow.ticket_id.in_(expired)))
             session.execute(delete(TicketRow).where(TicketRow.id.in_(expired)))
             session.commit()
         return len(expired)

@@ -37,6 +37,22 @@ class ReviewRow(Base):
     payload: Mapped[dict] = mapped_column(JSON)
 
 
+class NoteRow(Base):
+    __tablename__ = "ticket_notes"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    ticket_id: Mapped[str] = mapped_column(String, index=True)
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+
+
+class ActivityRow(Base):
+    __tablename__ = "workspace_activity"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    ticket_id: Mapped[str] = mapped_column(String, index=True)
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+
+
 class Database:
     def __init__(self, url: str):
         if url.startswith("postgres://"):

@@ -16,10 +16,50 @@ class TicketCreate(Contract):
     log: str = Field(default="", max_length=12000)
 
 
+class TicketPatch(Contract):
+    expected_revision: int = Field(ge=1)
+    subject: str | None = Field(default=None, min_length=3, max_length=200)
+    description: str | None = Field(default=None, min_length=10, max_length=6000)
+    product_version: Literal["v1", "v2"] | None = None
+    account_id: str | None = Field(default=None, max_length=80)
+    log: str | None = Field(default=None, max_length=12000)
+    status: Literal["open", "in_progress", "waiting", "resolved"] | None = None
+    priority: Literal["low", "normal", "high", "urgent"] | None = None
+    assignee: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def reject_null_required(self):
+        for key in self.model_fields_set - {"account_id", "product_version", "assignee"}:
+            if getattr(self, key) is None:
+                raise ValueError(f"{key} cannot be null")
+        return self
+
+
+class NoteCreate(Contract):
+    body: str = Field(min_length=1, max_length=4000)
+
+    @model_validator(mode="after")
+    def reject_blank(self):
+        if not self.body.strip():
+            raise ValueError("Note cannot be blank")
+        return self
+
+
+class Note(NoteCreate):
+    id: str
+    author_id: str
+    created_at: datetime
+
+
 class Ticket(TicketCreate):
     id: str
     workspace_id: str
     created_at: datetime
+    status: Literal["open", "in_progress", "waiting", "resolved"] = "open"
+    priority: Literal["low", "normal", "high", "urgent"] = "normal"
+    assignee: str | None = None
+    revision: int = 1
+    updated_at: datetime | None = None
 
 
 class Evidence(Contract):
@@ -98,6 +138,7 @@ class Investigation(Contract):
     workspace_id: str
     state: Literal["queued", "running", "awaiting_review", "failed"]
     created_at: datetime
+    ticket_revision: int = 1
     draft_revision: int = 1
     draft: Draft | None = None
     evidence: list[Evidence] = Field(default_factory=list)

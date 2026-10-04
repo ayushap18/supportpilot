@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
   ArrowDownLeft,
+  LayoutDashboard,
+  Settings2,
+  RefreshCw,
   Activity,
   GitBranch,
   Code2,
@@ -53,6 +56,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
+import {
+  Overview,
+  ActivityList,
+  WorkspaceView,
+} from "./features/OperationsViews";
+import { KnowledgeView } from "./features/KnowledgeView";
+import { TicketManagement, TicketNotes } from "./features/TicketManagement";
+import { StateBadge, SectionHeading } from "./features/shared";
+import type { Operations, QueueTicket } from "./types";
 import type {
   Evidence,
   Investigation,
@@ -80,6 +92,58 @@ function formatLatency(milliseconds: number) {
     : (milliseconds / 1000).toFixed(2) + "s";
 }
 
+type View =
+  | "overview"
+  | "workspace"
+  | "reviews"
+  | "knowledge"
+  | "activity"
+  | "settings"
+  | "guide";
+const NAV = [
+  {
+    id: "overview",
+    label: "Overview",
+    icon: LayoutDashboard,
+    description: "Your team's support work, in one clear view.",
+  },
+  {
+    id: "workspace",
+    label: "Tickets",
+    icon: Inbox,
+    description: "Triage, investigate, and resolve with evidence.",
+  },
+  {
+    id: "reviews",
+    label: "Review queue",
+    icon: ClipboardCheck,
+    description: "Current drafts waiting for a human decision.",
+  },
+  {
+    id: "knowledge",
+    label: "Knowledge",
+    icon: BookOpen,
+    description: "Manage the source material behind your team's answers.",
+  },
+  {
+    id: "activity",
+    label: "Activity",
+    icon: Activity,
+    description: "A shared record of investigations, decisions, and handoffs.",
+  },
+  {
+    id: "settings",
+    label: "Workspace",
+    icon: Settings2,
+    description: "Your team, execution limits, and readiness checks.",
+  },
+  {
+    id: "guide",
+    label: "How it works",
+    icon: Layers3,
+    description: "From context to evidence to a reviewed decision.",
+  },
+] as const;
 export default function App() {
   const [token, setToken] = useState("");
   const [tokenEntry, setTokenEntry] = useState("");
@@ -105,7 +169,133 @@ export default function App() {
   const [reviewNote, setReviewNote] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
-  const [view, setView] = useState<"workspace" | "guide">("workspace");
+  const [view, setView] = useState<View>("overview");
+  const [operations, setOperations] = useState<Operations | null>(null);
+  const [queuePage, setQueuePage] = useState(1),
+    [queueTotal, setQueueTotal] = useState(0);
+  const [queueStatus, setQueueStatus] = useState("all"),
+    [queuePriority, setQueuePriority] = useState("all");
+  const [queueLoading, setQueueLoading] = useState(false);
+  const [queueError, setQueueError] = useState("");
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [history, setHistory] = useState<Investigation[]>([]);
+  const activeView = NAV.find((item) => item.id === view)!;
+  const staleDraft = Boolean(
+    selected &&
+    investigation &&
+    investigation.ticket_revision !== selected.revision,
+  );
+  function navigate(next: View) {
+    setView(next);
+    setNavigationOpen(false);
+    setQueuePage(1);
+    setQuery("");
+    setQueueStatus("all");
+    setQueuePriority("all");
+  }
+  async function refreshWorkspace() {
+    if (!token) return;
+    setOperations(await api<Operations>("/operations"));
+    setRefreshVersion((value) => value + 1);
+  }
+  async function openTicketId(id: string) {
+    try {
+      await selectTicket(await api<Ticket>("/tickets/" + id));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  useEffect(() => {
+    if (!token || !["workspace", "reviews"].includes(view)) return;
+    let active = true;
+    const controller = new AbortController();
+    setQueueLoading(true);
+    setQueueError("");
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams({
+        search: query,
+        status: queueStatus,
+        priority: queuePriority,
+        review: view === "reviews" ? "pending" : "all",
+        page: String(queuePage),
+        page_size: "15",
+      });
+      api<{ items: QueueTicket[]; total: number }>("/queue?" + params, {
+        signal: controller.signal,
+      })
+        .then((data) => {
+          if (active) {
+            setTickets(data.items);
+            setQueueTotal(data.total);
+          }
+        })
+        .catch((e) => {
+          if (active) {
+            setQueueError(e.message);
+          }
+        })
+        .finally(() => {
+          if (active) setQueueLoading(false);
+        });
+    }, 150);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    token,
+    view,
+    query,
+    queueStatus,
+    queuePriority,
+    queuePage,
+    refreshVersion,
+  ]);
+  async function updateTicket(changes: Partial<Ticket>) {
+    if (!selected) return;
+    setBusy("update");
+    setError("");
+    try {
+      const {
+        subject,
+        description,
+        product_version,
+        account_id,
+        log,
+        status,
+        priority,
+        assignee,
+      } = changes;
+      const updated = await api<Ticket>("/tickets/" + selected.id, {
+        method: "PATCH",
+        body: JSON.stringify({
+          expected_revision: selected.revision,
+          subject,
+          description,
+          product_version,
+          account_id,
+          log,
+          status,
+          priority,
+          assignee,
+        }),
+      });
+      setSelected(updated);
+      setTickets((old) =>
+        old.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setNotice(
+        "Ticket updated. Existing drafts retain their original context.",
+      );
+      await refreshWorkspace();
+    } catch (e) {
+      setError((e as Error).message);
+      throw e;
+    } finally {
+      setBusy("");
+    }
+  }
 
   useEffect(() => {
     fetch("/api/config")
@@ -152,15 +342,18 @@ export default function App() {
         {},
         tokenEntry,
       );
-      const [loaded, samples] = await Promise.all([
+      const [loaded, samples, summary] = await Promise.all([
         api<Ticket[]>("/tickets", {}, tokenEntry),
         api<typeof examples>("/examples", {}, tokenEntry),
+        api<Operations>("/operations", {}, tokenEntry),
       ]);
       setToken(tokenEntry);
       setTokenEntry("");
       setWorkspace(identity.workspace_id);
       setTickets(loaded);
       setExamples(samples);
+      setOperations(summary);
+      setView("overview");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -171,8 +364,9 @@ export default function App() {
   async function selectTicket(ticket: Ticket) {
     setSelected(ticket);
     setInvestigation(null);
+    setHistory([]);
     setReviews([]);
-    setView("workspace");
+    setView(view === "reviews" ? "reviews" : "workspace");
     setError("");
     setNotice("");
     setReviewNote("");
@@ -181,6 +375,7 @@ export default function App() {
       const runs = await api<Investigation[]>(
         "/tickets/" + ticket.id + "/investigations",
       );
+      setHistory(runs);
       if (runs.length) {
         setInvestigation(runs[0]);
         setReviews(
@@ -205,12 +400,15 @@ export default function App() {
       });
       setTickets((old) => [ticket, ...old]);
       setSelected(ticket);
+      setHistory([]);
       setInvestigation(null);
       setReviews([]);
       setComposer(false);
       setForm(EMPTY);
       setNotice("Ticket created. Ready to investigate.");
-      setView("workspace");
+      navigate("workspace");
+      setHistory([]);
+      await refreshWorkspace();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -234,7 +432,9 @@ export default function App() {
         },
       );
       setInvestigation(result);
+      setHistory((old) => [result, ...old]);
       setTab("evidence");
+      await refreshWorkspace();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -259,6 +459,7 @@ export default function App() {
         },
       );
       setReviews([saved]);
+      await refreshWorkspace();
       setNotice(
         decision === "approve"
           ? "Approval recorded. No customer message was sent."
@@ -273,6 +474,9 @@ export default function App() {
 
   function disconnect() {
     setToken("");
+    setOperations(null);
+    setHistory([]);
+    setView("overview");
     setTickets([]);
     setExamples([]);
     setSelected(null);
@@ -283,11 +487,7 @@ export default function App() {
     setWorkspace("");
   }
 
-  const filtered = tickets.filter((ticket) =>
-    (ticket.subject + ticket.description)
-      .toLowerCase()
-      .includes(query.toLowerCase()),
-  );
+  const filtered = tickets;
   const cited = new Set(investigation?.draft?.evidence_ids ?? []);
   const sources = investigation?.evidence.filter((e) => cited.has(e.id)) ?? [];
 
@@ -307,28 +507,35 @@ export default function App() {
           <div className="workspace-label">
             <span className="workspace-icon">R</span>
             <div>
-              RelayDesk<span>Support workspace</span>
+              {workspace || "Your workspace"}
+              <span>
+                {operations?.role
+                  ? operations.role + " access"
+                  : "Internal support team"}
+              </span>
             </div>
             <ChevronRight size={15} />
           </div>
           <Separator className="sidebar-separator" />
           <div className="nav-caption">WORKSPACE</div>
-          <Button
-            variant="ghost"
-            className={"nav-link " + (view === "workspace" ? "active" : "")}
-            onClick={() => setView("workspace")}
-          >
-            <Inbox size={18} />
-            Ticket inbox<span>{tickets.length}</span>
-          </Button>
-          <Button
-            variant="ghost"
-            className={"nav-link " + (view === "guide" ? "active" : "")}
-            onClick={() => setView("guide")}
-          >
-            <BookOpen size={18} />
-            How it works
-          </Button>
+          {NAV.map((item) => (
+            <Button
+              key={item.id}
+              variant="ghost"
+              className={"nav-link " + (view === item.id ? "active" : "")}
+              aria-current={view === item.id ? "page" : undefined}
+              disabled={!token || !!busy}
+              onClick={() => navigate(item.id)}
+            >
+              <item.icon size={17} />
+              {item.label}
+              {item.id === "reviews" &&
+                operations &&
+                operations.counts.awaiting_review > 0 && (
+                  <span>{operations.counts.awaiting_review}</span>
+                )}
+            </Button>
+          ))}
           <a
             className="nav-link"
             href="https://github.com/ayushap18/supportpilot/blob/main/docs/EVALUATION.md"
@@ -365,6 +572,7 @@ export default function App() {
               <Button
                 variant="ghost"
                 title="Disconnect"
+                disabled={!!busy}
                 aria-label="Disconnect"
                 onClick={disconnect}
               >
@@ -399,26 +607,17 @@ export default function App() {
                       Your support workspace
                     </DialogDescription>
                   </DialogHeader>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      setView("workspace");
-                      setNavigationOpen(false);
-                    }}
-                  >
-                    <Inbox />
-                    Ticket inbox
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      setView("guide");
-                      setNavigationOpen(false);
-                    }}
-                  >
-                    <BookOpen />
-                    How it works
-                  </Button>
+                  {NAV.map((item) => (
+                    <Button
+                      key={item.id}
+                      variant="ghost"
+                      disabled={!token || !!busy}
+                      onClick={() => navigate(item.id)}
+                    >
+                      <item.icon size={17} />
+                      {item.label}
+                    </Button>
+                  ))}
                   <Button variant="ghost" asChild>
                     <a
                       href="https://github.com/ayushap18/supportpilot"
@@ -445,9 +644,7 @@ export default function App() {
               </Dialog>
               <PanelLeft size={16} className="desktop-panel-icon" />
               Workspace <ChevronRight size={14} />{" "}
-              <strong>
-                {view === "workspace" ? "Ticket inbox" : "How it works"}
-              </strong>
+              <strong>{activeView.label}</strong>
             </div>
             <div className="topbar-right">
               <span className="mode-badge">
@@ -466,25 +663,64 @@ export default function App() {
           <div className="page-heading">
             <div>
               <div className="eyebrow">YOUR SUPPORT COMMAND CENTER</div>
-              <h1>Resolve with evidence.</h1>
+              <h1>
+                {token
+                  ? activeView.id === "overview"
+                    ? "Your support, in focus."
+                    : activeView.label
+                  : "Resolve with evidence."}
+              </h1>
               <p>
-                Investigate faster. Trace every answer. Keep the final decision.
+                {token
+                  ? activeView.description
+                  : "Investigate faster. Trace every answer. Keep the final decision."}
               </p>
             </div>
-            <Button
-              variant="default"
-              className="primary"
-              disabled={!token || !!busy}
-              onClick={() => {
-                composerTrigger.current = document.activeElement as HTMLElement;
-                setComposer(true);
-                setForm(EMPTY);
-                setError("");
-              }}
-            >
-              <Plus size={17} />
-              New ticket
-            </Button>
+            <div className="heading-actions">
+              {token && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Refresh workspace"
+                  disabled={!!busy}
+                  onClick={async () => {
+                    setBusy("refresh");
+                    try {
+                      await refreshWorkspace();
+                      if (
+                        selected &&
+                        (view === "workspace" || view === "reviews")
+                      ) {
+                        await selectTicket(
+                          await api<Ticket>("/tickets/" + selected.id),
+                        );
+                      }
+                    } catch (e) {
+                      setError((e as Error).message);
+                    } finally {
+                      setBusy("");
+                    }
+                  }}
+                >
+                  <RefreshCw size={15} />
+                </Button>
+              )}
+              <Button
+                variant="default"
+                className="primary"
+                disabled={!token || !!busy}
+                onClick={() => {
+                  composerTrigger.current =
+                    document.activeElement as HTMLElement;
+                  setComposer(true);
+                  setForm(EMPTY);
+                  setError("");
+                }}
+              >
+                <Plus size={17} />
+                New ticket
+              </Button>
+            </div>
           </div>
           {mode === "fixture" && (
             <div className="demo-note">
@@ -528,7 +764,9 @@ export default function App() {
               {[
                 {
                   label: "Workspace tickets",
-                  value: String(tickets.length).padStart(2, "0"),
+                  value: String(
+                    operations?.counts.tickets ?? tickets.length,
+                  ).padStart(2, "0"),
                   note: "Available in your inbox",
                   icon: Inbox,
                   tone: "emerald",
@@ -637,6 +875,41 @@ export default function App() {
                 </small>
               </form>
             </section>
+          ) : view === "overview" && operations ? (
+            <div className="operational-content">
+              <Overview
+                data={operations}
+                onTicket={selectTicket}
+                onQueue={(review) => navigate(review ? "reviews" : "workspace")}
+                onKnowledge={() => navigate("knowledge")}
+              />
+            </div>
+          ) : view === "knowledge" && operations ? (
+            <div className="operational-content">
+              <KnowledgeView
+                api={api}
+                admin={operations.role === "admin"}
+                mode={mode}
+                onChange={refreshWorkspace}
+                onError={setError}
+              />
+            </div>
+          ) : view === "activity" && operations ? (
+            <div className="operational-content">
+              <Card>
+                <CardContent>
+                  <SectionHeading
+                    title="Team activity"
+                    detail="The latest 50 recorded actions in your workspace"
+                  />
+                  <ActivityList data={operations} onTicket={openTicketId} />
+                </CardContent>
+              </Card>
+            </div>
+          ) : view === "settings" && operations ? (
+            <div className="operational-content">
+              <WorkspaceView data={operations} />
+            </div>
           ) : view === "guide" ? (
             <section className="guide-grid">
               <div>
@@ -676,9 +949,10 @@ export default function App() {
               <div className="ticket-list">
                 <div className="panel-heading">
                   <h2>
-                    Inbox <span>{tickets.length}</span>
+                    {view === "reviews" ? "Pending review" : "Ticket inbox"}{" "}
+                    <span>{queueTotal}</span>
                   </h2>
-                  <span className="muted">Latest first</span>
+                  <span className="muted">Latest updates</span>
                 </div>
                 <div className="search-field">
                   <Search size={16} />
@@ -686,9 +960,54 @@ export default function App() {
                     aria-label="Search tickets"
                     placeholder="Search tickets…"
                     value={query}
-                    onChange={(e) => setQuery(e.target.value)}
+                    onChange={(e) => {
+                      setQuery(e.target.value);
+                      setQueuePage(1);
+                    }}
                   />
                 </div>
+                <div className="queue-filters">
+                  <NativeSelect
+                    aria-label="Filter status"
+                    value={queueStatus}
+                    onChange={(e) => {
+                      setQueueStatus(e.target.value);
+                      setQueuePage(1);
+                    }}
+                  >
+                    {["all", "open", "in_progress", "waiting", "resolved"].map(
+                      (value) => (
+                        <NativeSelectOption value={value} key={value}>
+                          {value === "all"
+                            ? "All statuses"
+                            : value.replaceAll("_", " ")}
+                        </NativeSelectOption>
+                      ),
+                    )}
+                  </NativeSelect>
+                  <NativeSelect
+                    aria-label="Filter priority"
+                    value={queuePriority}
+                    onChange={(e) => {
+                      setQueuePriority(e.target.value);
+                      setQueuePage(1);
+                    }}
+                  >
+                    {["all", "urgent", "high", "normal", "low"].map((value) => (
+                      <NativeSelectOption value={value} key={value}>
+                        {value === "all" ? "All priorities" : value}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </div>
+                {queueLoading && (
+                  <p className="queue-message">Loading tickets…</p>
+                )}
+                {queueError && (
+                  <p className="queue-message error-banner" role="alert">
+                    {queueError}
+                  </p>
+                )}
                 <div className="ticket-scroll">
                   {filtered.map((ticket) => (
                     <Button
@@ -708,6 +1027,12 @@ export default function App() {
                         <ChevronRight size={14} />
                       </div>
                       <h3>{ticket.subject}</h3>
+                      <div className="ticket-badges">
+                        <StateBadge value={ticket.status} />
+                        {ticket.priority !== "normal" && (
+                          <StateBadge value={ticket.priority} />
+                        )}
+                      </div>
                       <p>{ticket.description}</p>
                       <footer>
                         <span>
@@ -735,6 +1060,27 @@ export default function App() {
                       </p>
                     </div>
                   )}
+                </div>
+                <div className="queue-pagination">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={queuePage <= 1 || queueLoading}
+                    onClick={() => setQueuePage((value) => value - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <span>
+                    {queuePage} / {Math.max(1, Math.ceil(queueTotal / 15))}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={queuePage * 15 >= queueTotal || queueLoading}
+                    onClick={() => setQueuePage((value) => value + 1)}
+                  >
+                    Next
+                  </Button>
                 </div>
                 <Button
                   variant="ghost"
@@ -813,6 +1159,12 @@ export default function App() {
                         Human review
                       </span>
                     </div>
+                    <TicketManagement
+                      ticket={selected}
+                      members={operations?.members || []}
+                      busy={!!busy}
+                      onUpdate={updateTicket}
+                    />
                     <div className="detail-heading">
                       <div className="ticket-code">
                         TKT-{selected.id.slice(0, 6).toUpperCase()}
@@ -879,6 +1231,36 @@ export default function App() {
                           Your ticket is saved. You can start a new
                           investigation.
                         </p>
+                      </div>
+                    )}
+                    {history.length > 1 && (
+                      <div className="investigation-history">
+                        <details>
+                          <summary>
+                            Investigation history · {history.length} runs
+                          </summary>
+                          {history.map((run) => (
+                            <div key={run.id}>
+                              <span>
+                                {new Date(run.created_at).toLocaleString()}
+                              </span>
+                              <span>
+                                Ticket rev. {run.ticket_revision} ·{" "}
+                                {run.draft?.outcome.replaceAll("_", " ") ||
+                                  run.state}
+                              </span>
+                            </div>
+                          ))}
+                        </details>
+                      </div>
+                    )}
+                    {staleDraft && (
+                      <div className="stale-notice" role="status">
+                        <TriangleAlert size={16} />
+                        <span>
+                          This draft uses an older ticket revision. Investigate
+                          again before reviewing.
+                        </span>
                       </div>
                     )}
                     {investigation?.draft && (
@@ -967,7 +1349,7 @@ export default function App() {
                                 <Button
                                   variant="default"
                                   className="primary"
-                                  disabled={!!busy}
+                                  disabled={!!busy || staleDraft}
                                   onClick={() => review("approve")}
                                 >
                                   <Check size={16} />
@@ -976,7 +1358,7 @@ export default function App() {
                                 <Button
                                   variant="ghost"
                                   className="secondary"
-                                  disabled={!!busy}
+                                  disabled={!!busy || staleDraft}
                                   onClick={() => review("reject")}
                                 >
                                   <X size={16} />
@@ -992,6 +1374,13 @@ export default function App() {
                         </div>
                       </div>
                     )}
+                    <TicketNotes
+                      key={selected.id}
+                      ticketId={selected.id}
+                      api={api}
+                      onError={setError}
+                      onChange={refreshWorkspace}
+                    />
                   </>
                 )}
               </div>
@@ -1124,7 +1513,10 @@ export default function App() {
               <ShieldCheck size={13} />
               Evidence grounded. Human reviewed.
             </span>
-            <span>SupportPilot / RelayDesk demo</span>
+            <span>
+              SupportPilot /{" "}
+              {mode === "fixture" ? "Fixture workspace" : "Team workspace"}
+            </span>
           </footer>
         </main>
 

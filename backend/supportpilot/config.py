@@ -39,8 +39,18 @@ class Settings(BaseSettings):
         if not isinstance(tokens, list):
             raise ValueError("API tokens must be a JSON array")
         for entry in tokens:
-            if set(entry) != {"token", "workspace_id", "reviewer_id"}:
+            if (
+                not isinstance(entry, dict)
+                or not {"token", "workspace_id", "reviewer_id"} <= set(entry)
+                or set(entry) - {"token", "workspace_id", "reviewer_id", "role"}
+            ):
                 raise ValueError("Each token needs token, workspace_id, and reviewer_id")
+            if entry.get("role", "admin") not in {"admin", "agent"}:
+                raise ValueError("Role must be admin or agent")
+            if not all(
+                isinstance(entry[key], str) for key in ("token", "workspace_id", "reviewer_id")
+            ):
+                raise ValueError("Token and identities must be strings")
             if len(entry["token"]) < 24 or not entry["workspace_id"] or not entry["reviewer_id"]:
                 raise ValueError("Tokens need at least 24 characters and non-empty identities")
         if self.mode == "live" and not self.openai_api_key.get_secret_value():
@@ -61,4 +71,7 @@ class Settings(BaseSettings):
         return self
 
     def identities(self) -> list[dict[str, str]]:
-        return json.loads(self.api_tokens_json.get_secret_value())
+        return [
+            {"role": "admin", **entry}
+            for entry in json.loads(self.api_tokens_json.get_secret_value())
+        ]

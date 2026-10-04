@@ -1,89 +1,78 @@
 # Architecture
 
-The MVP implements this flow. Fixture mode is verified locally and in CI; live provider validation and public deployment are pending configuration. See the runtime decision record for SQLite fallback and fixture/live differences.
+SupportPilot is a standalone operational pilot for a small support team. The [real-use plan](REAL_USE_PLAN.md) defines its contracts and acceptance criteria; the [user guide](USER_GUIDE.md) explains the operator workflow. Live-model quality and public Render hosting remain pending verification.
 
 ## System flow
 
 ```mermaid
 flowchart TD
-    U[Reviewer] --> UI[React interface]
-    UI --> API[FastAPI: authentication and validation]
-    API --> DB[(PostgreSQL: tickets, evidence, reviews)]
-    API --> W[Bounded investigation workflow]
-    W --> R[Version-aware retrieval]
-    R --> V[(Document chunks and pgvector)]
-    W --> T[Typed read-only mock tools]
-    W --> L[Hosted LLM]
-    W --> D[Draft and evidence validation]
+    U[Support operator] --> UI[React workspace dashboard]
+    UI --> API[FastAPI: workspace authentication and roles]
+    API --> DB[(Tickets, notes, activity, investigations, reviews)]
+    API --> K[Admin knowledge changes]
+    K --> I[Prepare embeddings, then atomically save source and index]
+    I --> V[(Versioned document chunks)]
+    API --> W[Bounded investigation]
+    V --> W
+    W --> P[Fixture router or live structured model]
+    W --> T[Fixture-only synthetic read-only tools]
+    W --> D[Draft and citation-ID validation]
     D --> DB
     DB --> UI
-    UI --> H[Human approval or rejection]
-    H --> API
+    UI --> R[Human review of unchanged ticket and draft revision]
+    R --> DB
 ```
 
-The API executes the first vertical slice directly with strict timeouts. Introduce a persistent background worker if measured request duration or restart recovery requires it; record that decision before adding another service. Durable investigation state lives in PostgreSQL either way.
+The API serves the compiled frontend and executes investigations directly with bounded timeouts. PostgreSQL/pgvector is the deployment database; SQLite is the local fallback. Run one API worker. Startup marks interrupted queued/running investigations failed, and a new idempotency key is needed to retry them. There is no persistent job queue or external help-desk connector.
 
-## Planned repository layout
+## State and authorization
 
-```text
-backend/              FastAPI app, workflow, retrieval, tool adapters
-frontend/             React ticket and review interface
-data/relaydesk/        Synthetic product documentation and mock records
-evals/                Labeled cases, runner, and report generation
-tests/                Contract, workflow, and access-control tests
-docs/                 Design, setup, and architecture decisions
-.github/workflows/    CI and explicitly triggered live evaluations
-```
-
-The application, fixtures, evaluations, tests, and workflows now exist. The React build is served by the API in production; Vite proxies requests during frontend development.
-
-## Main entities
-
-| Entity | Required information |
+| Entity | Stored information |
 | --- | --- |
-| Ticket | ID, workspace, subject, description, product version, bounded log |
-| Document | ID, workspace, version, revision, title, source path |
-| Evidence | Document/chunk ID or tool result ID, exact excerpt, provenance |
-| Investigation | Ticket ID, state, timestamps, budgets, usage, failure details |
-| Draft | Revision, outcome, response, missing information, evidence references |
-| Review | Draft revision, reviewer identity, decision, note, timestamp |
+| Ticket | Workspace, subject/context, version/account, status, priority, assignee, revision, timestamps |
+| Internal note | Ticket/workspace, body, author, timestamp |
+| Activity | Ticket edits and notes; creation, investigation, and review events also derive from persisted records |
+| Knowledge document | Workspace, title/body, version, source path, revision, archive state, update time |
+| Chunk | Source ID/revision, workspace/version, excerpt, embedding, index signature |
+| Investigation | Captured ticket revision, state, draft, evidence snapshot, trace, usage, failure details |
+| Review | Investigation/draft revision, reviewer, decision, note, timestamp |
 
-Use schema-validated model output. Return user-visible rationale and evidence summaries; do not request, persist, or display private chain-of-thought.
+Server-configured bearer tokens identify a workspace, reviewer, and `admin` or `agent` role. Existing token entries without a role default to admin. Both roles can operate tickets and review drafts; only admins can mutate knowledge. Workspace scope applies before access and retrieval. SSO, invitations, and self-service member administration remain release work.
 
-## Proposed API
+Ticket updates require `expected_revision` and perform an atomic revision comparison. A stale edit returns 409. Reviews reject a draft if the ticket revision changed after investigation began. PostgreSQL locks the ticket during review; SQLite serializes the short review transaction. A uniqueness constraint prevents duplicate review decisions for the same draft. Approval and ticket resolution are separate actions.
 
-| Endpoint | Purpose |
+## API groups
+
+All `/api` routes below require workspace authentication, except `/api/config`. Full schemas are available at `/openapi.json`.
+
+| Route | Purpose |
 | --- | --- |
-| `POST /tickets` | Validate and persist a ticket |
-| `POST /tickets/{id}/investigations` | Start an investigation, accepting an idempotency key |
-| `GET /investigations/{id}` | Read progress, draft, evidence, and usage |
-| `POST /investigations/{id}/reviews` | Approve or reject an exact draft revision |
-| `GET /health/live` | Process liveness |
-| `GET /health/ready` | Database and service readiness |
+| `/api/session`, `/api/operations` | Identity, configuration, real counts, seven-day UTC trends, recent activity |
+| `/api/tickets`, `/api/tickets/{id}` | Create/list/read tickets and revision-guarded edits |
+| `/api/queue` | Paginated search with status, priority, and pending-review filters |
+| `/api/tickets/{id}/notes` | Read/add internal notes |
+| `/api/tickets/{id}/investigations` | Read/start investigations with an idempotency key |
+| `/api/investigations/{id}/reviews` | Read/record exact draft decisions |
+| `/api/knowledge/documents` | Read/create sources; per-document edit/archive/restore routes |
+| `/api/knowledge/search` | Search indexed knowledge with workspace/version filtering |
+| `/health/live`, `/health/ready` | Process and database checks |
 
-All ticket, investigation, and review endpoints require workspace authorization. The demo may provide a seeded read-only view, but unauthenticated visitors cannot invoke costly investigations or write reviews.
+Queue review state uses the latest investigation per ticket. Dashboard counts include all workspace tickets rather than the legacy list endpoint's 100-item cap. Reporting currently aggregates workspace records in memory; larger deployments need measured query/index improvements. Activity is capped to the latest 50 events. No SLA, satisfaction, uptime, or live accuracy values are invented.
 
-## Read-only tools
+## Retrieval and modes
 
-- `get_account_status(account_id)`: returns account state and relevant plan limits.
-- `get_service_health(service_name)`: returns current synthetic service status.
-- `search_known_incidents(query, product_version)`: returns matching incident records.
+Knowledge mutations prepare embeddings before opening the write transaction. The source update and chunk replacement then commit together, using revision guards. Failed preparation saves neither change. Archive deletes searchable chunks but retains the document; restore prepares and writes its index again. Startup retains active workspace documents and refreshes changed source/embedding signatures.
 
-Resolve the caller's workspace on the server. Tools operate only on allowlisted mock records. No tool accepts a shell command, arbitrary URL, SQL query, or model-supplied authorization identity.
+Fixture mode loads the synthetic RelayDesk corpus, hashes lexical features, and uses deterministic answer routing. Live mode excludes synthetic seed documents and uses hosted embeddings with structured model output. PostgreSQL combines vector and lexical rankings; SQLite supports the local fallback. Workspace and version restrictions apply before ranking.
 
-## Reliability and boundaries
+Three typed tools (`get_account_status`, `get_service_health`, `search_known_incidents`) read allowlisted synthetic records in fixture mode only. Live application investigations pass `allow_tools=False`; real adapters must be implemented before current account or service state can be verified.
 
-- Three model rounds, five tool calls, and configurable wall-clock/token budgets per investigation.
-- Typed tool arguments, capped output size, explicit errors, and bounded transient retries.
-- Idempotent investigation requests and immutable draft revisions.
-- Logs and documents remain untrusted evidence, including instructions embedded inside them.
-- Source version and workspace restrictions apply before ranking, not only after generation.
-- Validate citation IDs against available evidence; claim support is additionally checked through evaluation and human review.
-- Keep API keys on the server; exclude secrets and raw sensitive payloads from logs.
-- Document retention and deletion behavior before making the demo available.
+## Reliability and release boundaries
 
-## Observability
-
-Assign a trace ID to each investigation. Record workflow stage durations, retrieved source IDs, validated tool calls/results, model identifiers, prompt version, input/output token counts, outcome, and errors.
-
-Estimate model cost using dated provider pricing captured in evaluation configuration. Label missing usage or incomplete pricing as unavailable rather than reporting a misleading zero. Display latency and cost alongside quality metrics.
+- Up to three model rounds, five tool calls, and a 45-second overall investigation deadline; bounded input/output and hourly workspace limits.
+- Idempotent investigation creation, persisted results, and explicit restart failures.
+- Ticket text, documents, and tool results remain untrusted evidence. Structured output and citation-ID validation do not prove semantic claim correctness; live evaluations and human review are required.
+- Trace records show executed stages, tool arguments/results, durations, and reported usage. Private model reasoning is neither requested nor exposed.
+- Missing prices display unavailable cost. Generation estimates exclude embedding costs and unreported failed-call usage.
+- Startup retention purges expired tickets and their notes, activity, investigations, and reviews; knowledge sources are retained.
+- SQLAlchemy creates new tables at startup. Explicit migrations, backup/restore verification, identity onboarding, and data-handling policy are required before customer rollout.

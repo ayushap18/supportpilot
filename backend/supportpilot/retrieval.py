@@ -7,6 +7,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, String, Text, delete, func, select
 from sqlalchemy.orm import Mapped, mapped_column
 
+from supportpilot.knowledge_storage import KnowledgeDocumentRow
 from supportpilot.schemas import Evidence
 from supportpilot.storage import Base
 
@@ -49,53 +50,80 @@ class Retrieval:
         self.provider = provider
 
     async def ingest(self):
-        documents = json.loads((self.settings.data_dir / "documents.json").read_text())
-        active = {doc["workspace_id"] + ":" + doc["id"] for doc in documents}
+        # Fixture documents belong only in the explicit demonstration mode.
+        documents = (
+            json.loads((self.settings.data_dir / "documents.json").read_text())
+            if self.settings.mode == "fixture"
+            else []
+        )
         with self.database.session() as session:
+            documents.extend(
+                row.document()
+                for row in session.scalars(
+                    select(KnowledgeDocumentRow).where(KnowledgeDocumentRow.archived.is_(False))
+                ).all()
+            )
+            active = {(doc["workspace_id"], doc["id"]) for doc in documents}
             for row in session.scalars(select(ChunkRow)).all():
-                if row.workspace_id + ":" + row.document_id not in active:
+                if (row.workspace_id, row.document_id) not in active:
                     session.delete(row)
             session.commit()
         for doc in documents:
-            signature = hashlib.sha256(
-                json.dumps(
-                    {
-                        "document": doc,
-                        "embedding": self.provider.embedding_signature,
-                        "chunk_size": 800,
-                    },
-                    sort_keys=True,
-                ).encode()
-            ).hexdigest()
-            scope = (
-                ChunkRow.document_id == doc["id"],
-                ChunkRow.workspace_id == doc["workspace_id"],
-            )
+            signature = self.document_signature(doc)
             with self.database.session() as session:
-                current = session.scalar(select(ChunkRow).where(*scope))
+                current = session.scalar(select(ChunkRow).where(*self.document_scope(doc)))
                 if current and current.signature == signature:
                     continue
-            # Fixed bounded chunks preserve exact excerpts and stable provenance.
-            chunks = [doc["body"][start : start + 800] for start in range(0, len(doc["body"]), 800)]
-            embeddings = await self.provider.embed(chunks)
+            prepared = await self.prepare_document(doc)
             with self.database.session() as session:
-                session.execute(delete(ChunkRow).where(*scope))
-                for index, (body, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
-                    session.add(
-                        ChunkRow(
-                            id=f"{doc['workspace_id']}:{doc['id']}:{doc['revision']}:{index}",
-                            document_id=doc["id"],
-                            workspace_id=doc["workspace_id"],
-                            version=doc["product_version"],
-                            revision=doc["revision"],
-                            signature=signature,
-                            title=doc["title"],
-                            source_path=doc["source_path"],
-                            body=body,
-                            embedding=embedding,
-                        )
-                    )
+                self.write_document(session, doc, prepared)
                 session.commit()
+
+    def document_signature(self, doc):
+        return hashlib.sha256(
+            json.dumps(
+                {
+                    "document": doc,
+                    "embedding": self.provider.embedding_signature,
+                    "chunk_size": 800,
+                },
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+
+    @staticmethod
+    def document_scope(doc):
+        return (
+            ChunkRow.document_id == doc["id"],
+            ChunkRow.workspace_id == doc["workspace_id"],
+        )
+
+    async def prepare_document(self, doc):
+        # Preparation happens before a mutation transaction, keeping the old index available.
+        chunks = [doc["body"][start : start + 800] for start in range(0, len(doc["body"]), 800)]
+        embeddings = await self.provider.embed(chunks)
+        if len(embeddings) != len(chunks):
+            raise ValueError("Incomplete document embeddings")
+        return self.document_signature(doc), chunks, embeddings
+
+    def write_document(self, session, doc, prepared):
+        signature, chunks, embeddings = prepared
+        session.execute(delete(ChunkRow).where(*self.document_scope(doc)))
+        for index, (body, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
+            session.add(
+                ChunkRow(
+                    id=f"{doc['workspace_id']}:{doc['id']}:{doc['revision']}:{index}",
+                    document_id=doc["id"],
+                    workspace_id=doc["workspace_id"],
+                    version=doc["product_version"],
+                    revision=str(doc["revision"]),
+                    signature=signature,
+                    title=doc["title"],
+                    source_path=doc["source_path"],
+                    body=body,
+                    embedding=embedding,
+                )
+            )
 
     async def search(self, query: str, workspace: str, version: str | None, limit=6):
         query = query[:8000]

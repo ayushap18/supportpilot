@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -16,7 +17,7 @@ export default defineConfig({
       url: "http://127.0.0.1:8000/health/ready",
       reuseExistingServer: false,
       env: {
-        SUPPORTPILOT_DATABASE_URL: `sqlite:///.state/browser-${process.pid}.db`,
+        SUPPORTPILOT_DATABASE_URL: `sqlite:///.state/browser-${randomUUID()}.db`,
         SUPPORTPILOT_MODE: "fixture",
         SUPPORTPILOT_MAX_INVESTIGATIONS_PER_HOUR: "1000",
         SUPPORTPILOT_API_TOKENS_JSON: JSON.stringify([
@@ -24,6 +25,19 @@ export default defineConfig({
             token: "browser-test-token-at-least-24-characters",
             workspace_id: "demo",
             reviewer_id: "browser-reviewer",
+            role: "admin",
+          },
+          {
+            token: "browser-agent-token-at-least-24-characters",
+            workspace_id: "demo",
+            reviewer_id: "browser-agent",
+            role: "agent",
+          },
+          {
+            token: "browser-other-token-at-least-24-characters",
+            workspace_id: "other",
+            reviewer_id: "other-reviewer",
+            role: "admin",
           },
         ]),
       },
