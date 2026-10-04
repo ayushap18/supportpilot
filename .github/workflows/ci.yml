@@ -8,6 +8,20 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: supportpilot_test
+          POSTGRES_USER: supportpilot
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U supportpilot -d supportpilot_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SUPPORTPILOT_TEST_POSTGRES_URL: postgresql+psycopg://supportpilot:ci-only-password@localhost:5432/supportpilot_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

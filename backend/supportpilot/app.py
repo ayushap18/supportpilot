@@ -8,23 +8,32 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 
 from supportpilot.config import Settings
+from supportpilot.provider import Provider
+from supportpilot.retrieval import Retrieval
 from supportpilot.schemas import Investigation, Ticket, TicketCreate
 from supportpilot.storage import Database, InvestigationRow, TicketRow
+from supportpilot.workflow import investigate
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     database = Database(settings.database_url)
+    provider = Provider(settings)
+    retrieval = Retrieval(database, settings, provider)
 
     @asynccontextmanager
     async def lifespan(app):
         database.initialize()
+        await retrieval.ingest()
         yield
+        await provider.close()
         database.engine.dispose()
 
     app = FastAPI(title="SupportPilot", version="0.1.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.database = database
+    app.state.provider = provider
+    app.state.retrieval = retrieval
     bearer = HTTPBearer(auto_error=False)
 
     def identity(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
@@ -86,7 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return Ticket.model_validate(row.payload)
 
     @app.post("/api/tickets/{ticket_id}/investigations", response_model=Investigation)
-    def start_investigation(
+    async def start_investigation(
         ticket_id: str,
         idempotency_key: str = Header(min_length=8, max_length=120),
         caller: dict = Depends(identity),
@@ -95,6 +104,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ticket = session.get(TicketRow, ticket_id)
             if ticket is None or ticket.workspace_id != caller["workspace_id"]:
                 raise HTTPException(404, "Ticket not found")
+            ticket_contract = Ticket.model_validate(ticket.payload)
             existing = session.scalar(
                 select(InvestigationRow).where(
                     InvestigationRow.workspace_id == caller["workspace_id"],
@@ -123,6 +133,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
             )
             session.commit()
-            return investigation
+        investigation = await investigate(
+            ticket_contract,
+            investigation,
+            retrieval,
+            provider,
+            settings,
+        )
+        with database.session() as session:
+            row = session.get(InvestigationRow, investigation.id)
+            row.payload = investigation.model_dump(mode="json")
+            session.commit()
+        return investigation
+
+    @app.get("/api/investigations/{investigation_id}", response_model=Investigation)
+    def get_investigation(investigation_id: str, caller: dict = Depends(identity)):
+        with database.session() as session:
+            row = session.get(InvestigationRow, investigation_id)
+            if row is None or row.workspace_id != caller["workspace_id"]:
+                raise HTTPException(404, "Investigation not found")
+            return Investigation.model_validate(row.payload)
 
     return app

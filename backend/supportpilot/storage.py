@@ -53,7 +53,18 @@ class Database:
         self.engine = create_engine(url, **options)
 
     def initialize(self):
+        if self.engine.dialect.name == "postgresql":
+            with self.engine.begin() as connection:
+                connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         Base.metadata.create_all(self.engine)
+        if self.engine.dialect.name == "postgresql":
+            with self.engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS chunks_fts ON "
+                        "document_chunks USING GIN (to_tsvector('english', body))"
+                    )
+                )
 
     def session(self):
         return Session(self.engine)

@@ -33,7 +33,7 @@ class Evidence(Contract):
 
 class ToolCall(Contract):
     name: Literal["get_account_status", "get_service_health", "search_known_incidents"]
-    arguments: dict
+    arguments: "AccountArgs | HealthArgs | IncidentArgs"
 
 
 class AccountArgs(Contract):

@@ -1,0 +1,79 @@
+{
+  "mode": "fixture",
+  "kind": "development behavior check, not a live-model benchmark",
+  "baseline": "retrieval only",
+  "correct": 7,
+  "total": 10,
+  "cases": [
+    {
+      "case": "dev-01",
+      "expected": "resolved",
+      "actual": "resolved",
+      "correct": true,
+      "state": "awaiting_review"
+    },
+    {
+      "case": "dev-02",
+      "expected": "resolved",
+      "actual": "resolved",
+      "correct": true,
+      "state": "awaiting_review"
+    },
+    {
+      "case": "dev-03",
+      "expected": "resolved",
+      "actual": "resolved",
+      "correct": true,
+      "state": "awaiting_review"
+    },
+    {
+      "case": "dev-04",
+      "expected": "resolved",
+      "actual": "escalate",
+      "correct": false,
+      "state": "awaiting_review"
+    },
+    {
+      "case": "dev-05",
+      "expected": "resolved",
+      "actual": "escalate",
+      "correct": false,
+      "state": "awaiting_review"
+    },
+    {
+      "case": "dev-06",
+      "expected": "resolved",
+      "actual": "resolved",
+      "correct": true,
+      "state": "awaiting_review"
+    },
+    {
+      "case": "dev-07",
+      "expected": "needs_information",
+      "actual": "needs_information",
+      "correct": true,
+      "state": "awaiting_review"
+    },
+    {
+      "case": "dev-08",
+      "expected": "needs_information",
+      "actual": "needs_information",
+      "correct": true,
+      "state": "awaiting_review"
+    },
+    {
+      "case": "dev-09",
+      "expected": "escalate",
+      "actual": "escalate",
+      "correct": true,
+      "state": "awaiting_review"
+    },
+    {
+      "case": "dev-10",
+      "expected": "resolved",
+      "actual": "escalate",
+      "correct": false,
+      "state": "awaiting_review"
+    }
+  ]
+}
