@@ -1,0 +1,29 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Frontend
+node_modules/
+dist/
+coverage/
+
+# Local state and temporary evaluation output
+*.log
+*.sqlite3
+evals/runs/
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
