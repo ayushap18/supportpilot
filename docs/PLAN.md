@@ -1,5 +1,9 @@
 # Implementation plan
 
+## Current progress
+
+Milestones 1–4 are implemented and tested. Milestone 5 has datasets, a runner, fixture reports, and a live workflow; live evaluation and human review remain pending. Milestone 6 has packaging and deployment configuration; public hosting and portfolio release work remain pending. See README for current evidence.
+
 ## Objective
 
 Build and deploy a small support investigation system that demonstrates backend engineering, grounded generation, typed tool use, evaluation, and clear technical communication.
@@ -23,11 +27,11 @@ Create synthetic account records, incident records, and 10 development tickets. 
 
 Acceptance criteria:
 
-- [ ] Every document has a stable ID, product version, and revision.
-- [ ] Every development ticket has an expected outcome and cited evidence IDs.
-- [ ] Mock tool fixtures cover healthy, failing, unknown, and unauthorized states.
-- [ ] Repository setup, dependency lockfile, environment example, and basic CI exist.
-- [ ] A local API accepts a ticket, persists it, and returns an investigation ID.
+- [x] Every document has a stable ID, product version, and revision.
+- [x] Every development ticket has an expected outcome and cited evidence IDs.
+- [x] Mock tool fixtures cover healthy, failing, unknown, and unauthorized states.
+- [x] Repository setup, dependency lockfile, environment example, and basic CI exist.
+- [x] A local API accepts a ticket, persists it, and returns an investigation ID.
 
 ## Milestone 2: Retrieval baseline
 
@@ -37,12 +41,12 @@ Generate a structured draft from retrieved evidence. Show exact source excerpts 
 
 Acceptance criteria:
 
-- [ ] Re-ingesting an unchanged document does not duplicate chunks.
-- [ ] Updated documents replace or retire stale searchable revisions.
-- [ ] Retrieved evidence respects workspace and known version filters.
-- [ ] Unknown versions trigger clarification when the answer depends on version.
-- [ ] Unsupported questions return clarification or escalation.
-- [ ] A development-set report records retrieval and answer quality.
+- [x] Re-ingesting an unchanged document does not duplicate chunks.
+- [x] Updated documents replace or retire stale searchable revisions.
+- [x] Retrieved evidence respects workspace and known version filters.
+- [x] Unknown versions trigger clarification when the answer depends on version.
+- [x] Unsupported questions return clarification or escalation.
+- [x] A development-set report records retrieval and answer quality.
 
 ## Milestone 3: Investigation workflow
 
@@ -52,12 +56,12 @@ Limit each investigation to three model rounds and five tool calls. Enforce tool
 
 Acceptance criteria:
 
-- [ ] Tool requests are validated before execution.
-- [ ] Caller workspace identity comes from authentication, never model arguments.
-- [ ] Invalid calls and tool failures are represented in the trace.
-- [ ] Execution terminates when a call, time, or cost budget is reached.
-- [ ] Prompt injection in logs or documents cannot authorize tools or change access scope.
-- [ ] The final outcome is resolved, needs information, or escalate, with an explanation.
+- [x] Tool requests are validated before execution.
+- [x] Caller workspace identity comes from authentication, never model arguments.
+- [x] Invalid calls and tool failures are represented in the trace.
+- [x] Execution terminates when a call, time, or cost budget is reached.
+- [x] Prompt injection in logs or documents cannot authorize tools or change access scope.
+- [x] The final outcome is resolved, needs information, or escalate, with an explanation.
 
 ## Milestone 4: Human review interface
 
@@ -67,11 +71,11 @@ Approval records a decision inside SupportPilot; it does not send a message or e
 
 Acceptance criteria:
 
-- [ ] The UI shows cited excerpts alongside the draft.
-- [ ] The trace shows tool outcomes and summarized decisions without exposing private model reasoning.
-- [ ] Failed and timed-out investigations have useful visible states.
-- [ ] Review endpoints require authentication and workspace access.
-- [ ] Reviews refer to a specific draft revision and reject stale approvals.
+- [x] The UI shows cited excerpts alongside the draft.
+- [x] The trace shows tool outcomes and summarized decisions without exposing private model reasoning.
+- [x] Failed and timed-out investigations have useful visible states.
+- [x] Review endpoints require authentication and workspace access.
+- [x] Reviews refer to a specific draft revision and reject stale approvals.
 
 ## Milestone 5: Evaluation and regression checks
 

@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 
-from supportpilot.schemas import Evidence, TraceEvent
+from supportpilot.schemas import Evidence, ToolResult, TraceEvent
 
 
 async def investigate(
@@ -49,8 +49,28 @@ async def investigate(
                             raise ValueError("Tool call budget exceeded")
                         investigation.usage.tool_calls += 1
                         tool_started = time.monotonic()
-                        async with asyncio.timeout(min(5, settings.timeout_seconds)):
-                            result = await tools.execute(call, ticket.workspace_id)
+                        arguments = call.arguments.model_dump()
+                        if call.name == "get_account_status" and (
+                            arguments.get("account_id") != ticket.account_id
+                        ):
+                            result = ToolResult(
+                                name=call.name,
+                                status="denied",
+                                data={"message": "Ticket account context required"},
+                            )
+                        elif (
+                            call.name == "search_known_incidents"
+                            and ticket.product_version
+                            and (arguments.get("product_version") != ticket.product_version)
+                        ):
+                            result = ToolResult(
+                                name=call.name,
+                                status="error",
+                                data={"message": "Tool version conflicts with ticket"},
+                            )
+                        else:
+                            async with asyncio.timeout(min(5, settings.timeout_seconds)):
+                                result = await tools.execute(call, ticket.workspace_id)
                         results.append(result)
                         evidence.append(
                             Evidence(
@@ -66,6 +86,7 @@ async def investigate(
                                 summary=f"{call.name}: {result.status}",
                                 duration_ms=(time.monotonic() - tool_started) * 1000,
                                 tool_result=result,
+                                tool_arguments=arguments,
                             )
                         )
                     continue

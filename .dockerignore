@@ -1,0 +1,13 @@
+.git
+.venv
+.env*
+.state
+**/node_modules
+**/dist
+**/__pycache__
+**/test-results
+**/.pytest_cache
+**/.ruff_cache
+**/*.tsbuildinfo
+docs/screenshots
+docs/reports

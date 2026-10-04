@@ -1,11 +1,14 @@
 import json
+import math
+import os
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("SUPPORTPILOT_ROOT", Path(__file__).resolve().parents[2]))
 
 
 class Settings(BaseSettings):
@@ -20,11 +23,11 @@ class Settings(BaseSettings):
     frontend_dir: Path = ROOT / "frontend/dist"
     max_rounds: int = 3
     max_tool_calls: int = 5
-    timeout_seconds: float = 45
-    max_output_tokens: int = 1800
-    max_input_chars: int = 40000
-    max_investigations_per_hour: int = 30
-    retention_days: int = 30
+    timeout_seconds: float = Field(default=45, gt=0, le=45)
+    max_output_tokens: int = Field(default=1800, ge=128, le=1800)
+    max_input_chars: int = Field(default=40000, ge=1000, le=40000)
+    max_investigations_per_hour: int = Field(default=30, ge=1, le=1000)
+    retention_days: int = Field(default=30, ge=1, le=365)
     input_usd_per_million: float | None = None
     output_usd_per_million: float | None = None
     embedding_usd_per_million: float | None = None
@@ -46,6 +49,15 @@ class Settings(BaseSettings):
             raise ValueError("Budgets exceed the supported workflow bounds")
         if self.timeout_seconds <= 0 or self.max_investigations_per_hour < 1:
             raise ValueError("Timeout and hourly limit must be positive")
+        for price in (
+            self.input_usd_per_million,
+            self.output_usd_per_million,
+            self.embedding_usd_per_million,
+        ):
+            if price is not None and (not math.isfinite(price) or price < 0):
+                raise ValueError("Pricing must be finite and non-negative")
+        if self.pricing_date:
+            date.fromisoformat(self.pricing_date)
         return self
 
     def identities(self) -> list[dict[str, str]]:

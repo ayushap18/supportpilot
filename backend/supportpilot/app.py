@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from supportpilot.config import Settings
 from supportpilot.provider import Provider
 from supportpilot.redaction import redact
+from supportpilot.retention import purge_expired
 from supportpilot.retrieval import Retrieval
 from supportpilot.schemas import Investigation, Review, ReviewCreate, Ticket, TicketCreate
 from supportpilot.storage import Database, InvestigationRow, ReviewRow, TicketRow
@@ -30,6 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
         database.initialize()
+        purge_expired(database, settings.retention_days)
         await retrieval.ingest()
         # The MVP runs one API worker. Interrupted requests are not silently re-executed.
         with database.session() as session:
@@ -45,13 +47,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await provider.close()
         database.engine.dispose()
 
-    app = FastAPI(title="SupportPilot", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        title="SupportPilot", version="0.1.0", lifespan=lifespan, docs_url=None, redoc_url=None
+    )
     app.state.settings = settings
     app.state.database = database
     app.state.provider = provider
     app.state.retrieval = retrieval
     app.state.tools = tools
     bearer = HTTPBearer(auto_error=False)
+
+    @app.middleware("http")
+    async def security_headers(request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; "
+            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; "
+            "base-uri 'self'; form-action 'self'"
+        )
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     def identity(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
         if credentials is not None:

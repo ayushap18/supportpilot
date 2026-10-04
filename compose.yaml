@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: supportpilot
+      POSTGRES_USER: supportpilot
+      POSTGRES_PASSWORD: local-supportpilot-password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U supportpilot -d supportpilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  app:
+    build: .
+    env_file: .env
+    environment:
+      SUPPORTPILOT_DATABASE_URL: postgresql+psycopg://supportpilot:local-supportpilot-password@postgres:5432/supportpilot
+    ports:
+      - 127.0.0.1:8000:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+volumes:
+  postgres-data:

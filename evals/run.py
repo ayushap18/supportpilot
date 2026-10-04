@@ -98,6 +98,7 @@ async def evaluate(args):
                     settings.pricing_date,
                 )
             )
+            or not math.isfinite(args.max_spend_usd)
             or args.max_spend_usd <= 0
         ):
             raise SystemExit(
@@ -242,6 +243,10 @@ async def evaluate(args):
     )
     (output / "REPORT.md").write_text("\n".join(lines) + "\n")
     print(json.dumps({name: value["summary"] for name, value in experiments.items()}, indent=2))
+    if args.minimum_outcome_accuracy is not None and (
+        experiments["workflow"]["summary"]["outcome_accuracy"] < args.minimum_outcome_accuracy
+    ):
+        raise SystemExit("Workflow outcome accuracy is below the configured regression gate.")
 
 
 def main():
@@ -252,10 +257,16 @@ def main():
     parser.add_argument("--repeat", type=int, choices=[1, 2, 3], default=1)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--max-spend-usd", type=float, default=0)
+    parser.add_argument("--minimum-outcome-accuracy", type=float)
     parser.add_argument("--output", default="evals/runs/latest")
     args = parser.parse_args()
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be positive")
+    if args.minimum_outcome_accuracy is not None and (
+        not math.isfinite(args.minimum_outcome_accuracy)
+        or not 0 <= args.minimum_outcome_accuracy <= 1
+    ):
+        parser.error("--minimum-outcome-accuracy must be between 0 and 1")
     asyncio.run(evaluate(args))
 
 

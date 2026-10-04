@@ -44,6 +44,11 @@ class Database:
         elif url.startswith("postgresql://"):
             url = url.replace("postgresql://", "postgresql+psycopg://", 1)
         options = {}
+        if url.startswith("postgresql"):
+            options["connect_args"] = {
+                "connect_timeout": 5,
+                "options": "-c statement_timeout=5000 -c lock_timeout=5000",
+            }
         if url.startswith("sqlite"):
             options["connect_args"] = {"check_same_thread": False}
             if ":memory:" in url:

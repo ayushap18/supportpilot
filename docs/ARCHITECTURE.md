@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the planned MVP. No services are implemented yet.
+The MVP implements this flow. Fixture mode is verified locally and in CI; live provider validation and public deployment are pending configuration. See the runtime decision record for SQLite fallback and fixture/live differences.
 
 ## System flow
 
@@ -35,7 +35,7 @@ docs/                 Design, setup, and architecture decisions
 .github/workflows/    CI and explicitly triggered live evaluations
 ```
 
-Only `docs/` and the root planning files currently exist. Create application directories when implementing their first working functionality.
+The application, fixtures, evaluations, tests, and workflows now exist. The React build is served by the API in production; Vite proxies requests during frontend development.
 
 ## Main entities
 

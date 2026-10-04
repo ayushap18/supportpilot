@@ -81,6 +81,7 @@ class TraceEvent(Contract):
     summary: str
     duration_ms: float = 0
     tool_result: ToolResult | None = None
+    tool_arguments: dict | None = None
 
 
 class Usage(Contract):
