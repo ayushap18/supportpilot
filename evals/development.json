@@ -1,0 +1,570 @@
+[
+  {
+    "id": "dev-01",
+    "category": "document",
+    "ticket": {
+      "subject": "API v2 rejects my API key",
+      "description": "API v2 returns 401 MISSING_BEARER with X-API-Key.",
+      "product_version": "v2"
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "auth-v2"
+    ],
+    "required_facts": [
+      "Authorization",
+      "Bearer"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-02",
+    "category": "document",
+    "ticket": {
+      "subject": "API v1 unauthorized",
+      "description": "API v1 returns 401 INVALID_API_KEY.",
+      "product_version": "v1"
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "auth-v1"
+    ],
+    "required_facts": [
+      "X-API-Key"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-03",
+    "category": "version",
+    "ticket": {
+      "subject": "Signature fails after migration",
+      "description": "After upgrading to v2, SIGNATURE_MISMATCH occurs while checking X-Signature.",
+      "product_version": "v2"
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "signature-v2"
+    ],
+    "required_facts": [
+      "X-Relay-Signature",
+      "raw"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-04",
+    "category": "tools",
+    "ticket": {
+      "subject": "Our rate limit is exceeded",
+      "description": "We get HTTP 429 RATE_LIMIT. What is our allowance?",
+      "account_id": "acct_active",
+      "product_version": "v2"
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "rate-limits"
+    ],
+    "required_facts": [
+      "60",
+      "Retry-After"
+    ],
+    "required_tools": [
+      "get_account_status"
+    ]
+  },
+  {
+    "id": "dev-05",
+    "category": "tools",
+    "ticket": {
+      "subject": "Account suspended",
+      "description": "API returns 403 ACCOUNT_SUSPENDED for our account.",
+      "account_id": "acct_suspended",
+      "product_version": "v2"
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "account-status"
+    ],
+    "required_facts": [
+      "administrator",
+      "reactivation"
+    ],
+    "required_tools": [
+      "get_account_status"
+    ]
+  },
+  {
+    "id": "dev-06",
+    "category": "document",
+    "ticket": {
+      "subject": "Receiver is returning errors",
+      "description": "Our webhook receiver returns HTTP 500. How does retry work?",
+      "product_version": "v2"
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "delivery"
+    ],
+    "required_facts": [
+      "six",
+      "2xx"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-07",
+    "category": "missing",
+    "ticket": {
+      "subject": "Authentication error",
+      "description": "We receive a 401. Which authentication header should we use?"
+    },
+    "expected_outcome": "needs_information",
+    "required_evidence_ids": [
+      "troubleshooting"
+    ],
+    "required_facts": [
+      "version"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-08",
+    "category": "missing",
+    "ticket": {
+      "subject": "What is my rate limit?",
+      "description": "Our account receives HTTP 429 RATE_LIMIT. What is our plan limit?",
+      "product_version": "v2"
+    },
+    "expected_outcome": "needs_information",
+    "required_evidence_ids": [
+      "rate-limits"
+    ],
+    "required_facts": [
+      "account"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-09",
+    "category": "unsupported",
+    "ticket": {
+      "subject": "Refund my subscription",
+      "description": "Please refund my subscription invoice and credit my card.",
+      "product_version": "v2"
+    },
+    "expected_outcome": "escalate",
+    "required_evidence_ids": [
+      "troubleshooting"
+    ],
+    "required_facts": [
+      "human"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-10",
+    "category": "tools",
+    "ticket": {
+      "subject": "Is there a webhook outage?",
+      "description": "Webhook deliveries are delayed. Can you check service health and incidents?",
+      "product_version": "v2"
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "incidents"
+    ],
+    "required_facts": [
+      "operational"
+    ],
+    "required_tools": [
+      "get_service_health",
+      "search_known_incidents"
+    ]
+  },
+  {
+    "id": "dev-11",
+    "category": "document",
+    "ticket": {
+      "subject": "Raw body signature validation",
+      "description": "API v2 SIGNATURE_MISMATCH after JSON reserialization.",
+      "product_version": "v2",
+      "account_id": null
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "signature-v2"
+    ],
+    "required_facts": [
+      "raw",
+      "X-Relay-Signature"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-12",
+    "category": "document",
+    "ticket": {
+      "subject": "API v1 signature mismatch",
+      "description": "API v1 SIGNATURE_MISMATCH after parsing the request body.",
+      "product_version": "v1",
+      "account_id": null
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "signature-v1"
+    ],
+    "required_facts": [
+      "raw",
+      "X-Signature"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-13",
+    "category": "document",
+    "ticket": {
+      "subject": "Missing bearer header",
+      "description": "API v2 returns MISSING_BEARER and HTTP 401.",
+      "product_version": "v2",
+      "account_id": null
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "auth-v2"
+    ],
+    "required_facts": [
+      "Authorization",
+      "Bearer"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-14",
+    "category": "document",
+    "ticket": {
+      "subject": "Legacy API credential header",
+      "description": "Which authentication header does API v1 require?",
+      "product_version": "v1",
+      "account_id": null
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "auth-v1"
+    ],
+    "required_facts": [
+      "X-API-Key"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-15",
+    "category": "document",
+    "ticket": {
+      "subject": "Receiver responds too slowly",
+      "description": "Our webhook returns DELIVERY_TIMEOUT after long processing.",
+      "product_version": "v2",
+      "account_id": null
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "delivery"
+    ],
+    "required_facts": [
+      "five seconds",
+      "2xx"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-16",
+    "category": "document",
+    "ticket": {
+      "subject": "Webhook destination missing",
+      "description": "Our webhook receiver returns 404 DESTINATION_NOT_FOUND.",
+      "product_version": "v2",
+      "account_id": null
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "delivery"
+    ],
+    "required_facts": [
+      "destination URL"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-17",
+    "category": "document",
+    "ticket": {
+      "subject": "Connection timeout retries",
+      "description": "How does RelayDesk retry CONNECTION_TIMEOUT delivery failures?",
+      "product_version": "v1",
+      "account_id": null
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "delivery"
+    ],
+    "required_facts": [
+      "six",
+      "one hour"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-18",
+    "category": "document",
+    "ticket": {
+      "subject": "Receiver HTTP error",
+      "description": "Our HTTPS receiver returns HTTP 500. What should we check?",
+      "product_version": "v1",
+      "account_id": null
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "delivery"
+    ],
+    "required_facts": [
+      "receiver logs",
+      "2xx"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-19",
+    "category": "tools",
+    "ticket": {
+      "subject": "Pro plan rate allowance",
+      "description": "Our account is getting HTTP 429 RATE_LIMIT. Check our allowance.",
+      "product_version": "v2",
+      "account_id": "acct_pro"
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "rate-limits"
+    ],
+    "required_facts": [
+      "600",
+      "Retry-After"
+    ],
+    "required_tools": [
+      "get_account_status"
+    ]
+  },
+  {
+    "id": "dev-20",
+    "category": "tools",
+    "ticket": {
+      "subject": "Check suspended account status",
+      "description": "Check our account status; it returns ACCOUNT_SUSPENDED.",
+      "product_version": "v2",
+      "account_id": "acct_suspended"
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "account-status"
+    ],
+    "required_facts": [
+      "administrator",
+      "reactivation"
+    ],
+    "required_tools": [
+      "get_account_status"
+    ]
+  },
+  {
+    "id": "dev-21",
+    "category": "tools",
+    "ticket": {
+      "subject": "Revoked account credential",
+      "description": "Our account status indicates TOKEN_REVOKED; verify it.",
+      "product_version": "v2",
+      "account_id": "acct_revoked"
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "account-status"
+    ],
+    "required_facts": [
+      "replacement credential"
+    ],
+    "required_tools": [
+      "get_account_status"
+    ]
+  },
+  {
+    "id": "dev-22",
+    "category": "tools",
+    "ticket": {
+      "subject": "Check current service health",
+      "description": "Can you check service health for a possible webhook outage?",
+      "product_version": "v1",
+      "account_id": null
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "incidents"
+    ],
+    "required_facts": [
+      "operational"
+    ],
+    "required_tools": [
+      "get_service_health",
+      "search_known_incidents"
+    ]
+  },
+  {
+    "id": "dev-23",
+    "category": "missing",
+    "ticket": {
+      "subject": "Unknown signature version",
+      "description": "What signature header should my webhook consumer validate?",
+      "product_version": null,
+      "account_id": null
+    },
+    "expected_outcome": "needs_information",
+    "required_evidence_ids": [
+      "troubleshooting"
+    ],
+    "required_facts": [
+      "version"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-24",
+    "category": "missing",
+    "ticket": {
+      "subject": "Account-specific rate allowance",
+      "description": "What is my account rate limit? We see HTTP 429.",
+      "product_version": "v1",
+      "account_id": null
+    },
+    "expected_outcome": "needs_information",
+    "required_evidence_ids": [
+      "rate-limits"
+    ],
+    "required_facts": [
+      "account"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-25",
+    "category": "missing",
+    "ticket": {
+      "subject": "Suspension without account",
+      "description": "We receive ACCOUNT_SUSPENDED. Can you check account status?",
+      "product_version": "v2",
+      "account_id": null
+    },
+    "expected_outcome": "needs_information",
+    "required_evidence_ids": [
+      "account-status"
+    ],
+    "required_facts": [
+      "account"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-26",
+    "category": "missing",
+    "ticket": {
+      "subject": "Unknown account record",
+      "description": "Check account status for an ID that may be wrong.",
+      "product_version": "v2",
+      "account_id": "acct_missing"
+    },
+    "expected_outcome": "needs_information",
+    "required_evidence_ids": [
+      "account-status"
+    ],
+    "required_facts": [
+      "correct account ID"
+    ],
+    "required_tools": [
+      "get_account_status"
+    ]
+  },
+  {
+    "id": "dev-27",
+    "category": "unsupported",
+    "ticket": {
+      "subject": "Subscription refund",
+      "description": "Please issue a refund and change our invoice.",
+      "product_version": "v2",
+      "account_id": null
+    },
+    "expected_outcome": "escalate",
+    "required_evidence_ids": [
+      "troubleshooting"
+    ],
+    "required_facts": [
+      "human"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-28",
+    "category": "unsupported",
+    "ticket": {
+      "subject": "Unrelated infrastructure request",
+      "description": "Configure a Kubernetes cluster for a different product.",
+      "product_version": "v2",
+      "account_id": null
+    },
+    "expected_outcome": "escalate",
+    "required_evidence_ids": [
+      "troubleshooting"
+    ],
+    "required_facts": [
+      "human"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-29",
+    "category": "version",
+    "ticket": {
+      "subject": "Version-specific signature guidance",
+      "description": "Our API v1 webhook still has SIGNATURE_MISMATCH. Which header applies?",
+      "product_version": "v1",
+      "account_id": null
+    },
+    "expected_outcome": "resolved",
+    "required_evidence_ids": [
+      "signature-v1"
+    ],
+    "required_facts": [
+      "X-Signature"
+    ],
+    "required_tools": []
+  },
+  {
+    "id": "dev-30",
+    "category": "failure",
+    "ticket": {
+      "subject": "Service health dependency failure",
+      "description": "Check service health for our webhook outage.",
+      "product_version": "v2",
+      "account_id": null
+    },
+    "expected_outcome": "escalate",
+    "required_evidence_ids": [
+      "incidents"
+    ],
+    "required_facts": [
+      "could not be verified"
+    ],
+    "required_tools": [
+      "get_service_health",
+      "search_known_incidents"
+    ],
+    "tool_errors": [
+      "get_service_health"
+    ]
+  }
+]

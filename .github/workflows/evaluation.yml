@@ -1,0 +1,63 @@
+name: Live evaluation
+on:
+  workflow_dispatch:
+    inputs:
+      split:
+        type: choice
+        options: [development, held-out]
+        default: development
+      limit:
+        description: Maximum cases per experiment
+        default: '5'
+        required: true
+      repeat:
+        type: choice
+        options: ['1', '2', '3']
+        default: '1'
+      max_spend_usd:
+        description: Conservative maximum request cost in USD
+        default: '10'
+        required: true
+permissions:
+  contents: read
+jobs:
+  evaluate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPPORTPILOT_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SUPPORTPILOT_MODEL: ${{ vars.LLM_MODEL }}
+      SUPPORTPILOT_INPUT_USD_PER_MILLION: ${{ vars.INPUT_USD_PER_MILLION }}
+      SUPPORTPILOT_OUTPUT_USD_PER_MILLION: ${{ vars.OUTPUT_USD_PER_MILLION }}
+      SUPPORTPILOT_EMBEDDING_USD_PER_MILLION: ${{ vars.EMBEDDING_USD_PER_MILLION }}
+      SUPPORTPILOT_PRICING_DATE: ${{ vars.PRICING_DATE }}
+      EVAL_SPLIT: ${{ inputs.split }}
+      EVAL_LIMIT: ${{ inputs.limit }}
+      EVAL_REPEAT: ${{ inputs.repeat }}
+      EVAL_MAX_SPEND: ${{ inputs.max_spend_usd }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate configuration
+        run: |
+          for name in SUPPORTPILOT_OPENAI_API_KEY SUPPORTPILOT_MODEL SUPPORTPILOT_INPUT_USD_PER_MILLION SUPPORTPILOT_OUTPUT_USD_PER_MILLION SUPPORTPILOT_EMBEDDING_USD_PER_MILLION SUPPORTPILOT_PRICING_DATE; do
+            if [ -z "${!name}" ]; then
+              echo "Missing configuration: $name"
+              exit 1
+            fi
+          done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: python -m pip install -r requirements.lock
+      - run: python -m pip install --no-deps --no-build-isolation -e .
+      - name: Run budgeted evaluation
+        run: >-
+          python -m evals.run --mode live --split "$EVAL_SPLIT"
+          --allow-held-out --limit "$EVAL_LIMIT" --repeat "$EVAL_REPEAT"
+          --max-spend-usd "$EVAL_MAX_SPEND" --output evals/runs/live
+      - uses: actions/upload-artifact@v4
+        with:
+          name: live-evaluation-report
+          path: evals/runs/live

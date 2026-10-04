@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     retention_days: int = 30
     input_usd_per_million: float | None = None
     output_usd_per_million: float | None = None
+    embedding_usd_per_million: float | None = None
     pricing_date: str | None = None
 
     @model_validator(mode="after")
