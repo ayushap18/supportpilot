@@ -20,8 +20,15 @@ SupportPilot is a working portfolio MVP for applied AI engineering. It supports 
 - Approve or reject the exact draft revision with a recorded reviewer identity.
 - Enforce workspace access, idempotency, hourly limits, execution budgets, and restart recovery.
 - Compare retrieval-only and tool-assisted behavior through reproducible evaluations.
+- Work in a responsive dark interface with keyboard-accessible dialogs, evidence tabs, and human review controls.
 
 Approval records a decision inside SupportPilot. It does not send a customer message or execute an account change.
+
+## Interface
+
+The frontend uses React, TypeScript, Tailwind CSS, and ten official shadcn/ui components built on Radix primitives. The dark theme combines charcoal panels, emerald actions, contextual metric cards, and an inspectable tool trace. Desktop and mobile views preserve the complete investigation and review flow.
+
+Public [21st.dev dashboard references](https://21st.dev/community/components/s/dashboard) informed the composition. No 21st.dev MCP tool was connected, and no paid registry installation is claimed. See the [design plan and component references](docs/DESIGN.md) and [mobile screenshot](docs/screenshots/mobile.png).
 
 ## Example
 
@@ -73,7 +80,7 @@ npm --prefix frontend exec playwright install chromium
 npm --prefix frontend run test:browser
 ```
 
-Stop local development servers before browser tests: Playwright starts its own API and frontend on ports 8000 and 5173.
+Build the frontend and stop local API servers before browser tests: Playwright serves the compiled UI on port 8000 with production security headers and an isolated fixture database. Four Chromium tests cover investigation/approval, missing details/escalation, keyboard focus/tabs, and the mobile tool trace/navigation.
 
 CI runs backend tests against SQLite and PostgreSQL, a fixture evaluation regression gate, frontend compilation, Chromium workflow tests, and a Docker build/smoke test. The local PostgreSQL integration test is skipped unless `SUPPORTPILOT_TEST_POSTGRES_URL` points to a dedicated test database.
 

@@ -63,7 +63,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; "
+            "default-src 'self'; script-src 'self'; style-src 'self'; "
+            "style-src-elem 'self' 'unsafe-inline'; "
+            "style-src-attr 'unsafe-inline'; font-src 'self'; "
             "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; "
             "base-uri 'self'; form-action 'self'"
         )

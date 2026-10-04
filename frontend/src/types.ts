@@ -38,6 +38,7 @@ export type Investigation = {
     stage: string;
     summary: string;
     duration_ms: number;
+    tool_arguments: Record<string, unknown> | null;
     tool_result: unknown;
   }[];
   usage: {

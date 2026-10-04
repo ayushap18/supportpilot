@@ -6,7 +6,8 @@ export default defineConfig({
   workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
-  use: { baseURL: "http://127.0.0.1:5173", trace: "retain-on-failure" },
+  // Test the compiled UI behind the same security headers used in deployment.
+  use: { baseURL: "http://127.0.0.1:8000", trace: "retain-on-failure" },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
@@ -15,7 +16,7 @@ export default defineConfig({
       url: "http://127.0.0.1:8000/health/ready",
       reuseExistingServer: false,
       env: {
-        SUPPORTPILOT_DATABASE_URL: "sqlite:///.state/browser-test.db",
+        SUPPORTPILOT_DATABASE_URL: `sqlite:///.state/browser-${process.pid}.db`,
         SUPPORTPILOT_MODE: "fixture",
         SUPPORTPILOT_MAX_INVESTIGATIONS_PER_HOUR: "1000",
         SUPPORTPILOT_API_TOKENS_JSON: JSON.stringify([
@@ -26,11 +27,6 @@ export default defineConfig({
           },
         ]),
       },
-    },
-    {
-      command: "npm run dev -- --port 5173",
-      url: "http://127.0.0.1:5173",
-      reuseExistingServer: false,
     },
   ],
 });
