@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
@@ -283,5 +284,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 session.rollback()
                 raise HTTPException(409, "This draft revision has already been reviewed") from exc
             return review
+
+    if settings.frontend_dir.exists():
+        app.mount("/", StaticFiles(directory=settings.frontend_dir, html=True), name="frontend")
 
     return app

@@ -28,3 +28,6 @@ evals/runs/
 .idea/
 .vscode/
 .state/
+test-results/
+playwright-report/
+*.tsbuildinfo
