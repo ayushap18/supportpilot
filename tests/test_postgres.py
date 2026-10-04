@@ -2,7 +2,6 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
-
 from supportpilot.app import create_app
 from supportpilot.storage import Database
 
