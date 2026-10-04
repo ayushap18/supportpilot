@@ -1,17 +1,21 @@
+import json
 import secrets
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 
 from supportpilot.config import Settings
 from supportpilot.provider import Provider
+from supportpilot.redaction import redact
 from supportpilot.retrieval import Retrieval
-from supportpilot.schemas import Investigation, Ticket, TicketCreate
-from supportpilot.storage import Database, InvestigationRow, TicketRow
+from supportpilot.schemas import Investigation, Review, ReviewCreate, Ticket, TicketCreate
+from supportpilot.storage import Database, InvestigationRow, ReviewRow, TicketRow
+from supportpilot.tools import Tools
 from supportpilot.workflow import investigate
 
 
@@ -20,11 +24,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     database = Database(settings.database_url)
     provider = Provider(settings)
     retrieval = Retrieval(database, settings, provider)
+    tools = Tools(settings.data_dir)
 
     @asynccontextmanager
     async def lifespan(app):
         database.initialize()
         await retrieval.ingest()
+        # The MVP runs one API worker. Interrupted requests are not silently re-executed.
+        with database.session() as session:
+            for row in session.scalars(select(InvestigationRow)).all():
+                if row.payload["state"] in {"queued", "running"}:
+                    row.payload = {
+                        **row.payload,
+                        "state": "failed",
+                        "error": "Interrupted by a restart; retry with a new idempotency key",
+                    }
+            session.commit()
         yield
         await provider.close()
         database.engine.dispose()
@@ -34,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.database = database
     app.state.provider = provider
     app.state.retrieval = retrieval
+    app.state.tools = tools
     bearer = HTTPBearer(auto_error=False)
 
     def identity(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
@@ -59,8 +75,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def config():
         return {"mode": settings.mode, "product": "RelayDesk"}
 
+    @app.get("/api/session")
+    def session_identity(caller: dict = Depends(identity)):
+        return {key: value for key, value in caller.items() if key != "token"}
+
+    @app.get("/api/examples")
+    def examples(caller: dict = Depends(identity)):
+        if caller["workspace_id"] != "demo":
+            return []
+        cases = json.loads((settings.data_dir / "development.json").read_text())
+        return [{"id": item["id"], "ticket": item["ticket"]} for item in cases]
+
     @app.post("/api/tickets", response_model=Ticket, status_code=201)
     def create_ticket(payload: TicketCreate, caller: dict = Depends(identity)):
+        payload = payload.model_copy(
+            update={
+                "subject": redact(payload.subject),
+                "description": redact(payload.description),
+                "log": redact(payload.log),
+            }
+        )
         ticket = Ticket(
             **payload.model_dump(),
             id=str(uuid4()),
@@ -82,7 +116,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def list_tickets(caller: dict = Depends(identity)):
         with database.session() as session:
             rows = session.scalars(
-                select(TicketRow).where(TicketRow.workspace_id == caller["workspace_id"])
+                select(TicketRow)
+                .where(TicketRow.workspace_id == caller["workspace_id"])
+                .order_by(TicketRow.payload["created_at"].as_string().desc())
+                .limit(100)
             ).all()
             return [Ticket.model_validate(row.payload) for row in rows]
 
@@ -94,6 +131,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(404, "Ticket not found")
             return Ticket.model_validate(row.payload)
 
+    @app.get("/api/tickets/{ticket_id}/investigations", response_model=list[Investigation])
+    def ticket_investigations(ticket_id: str, caller: dict = Depends(identity)):
+        with database.session() as session:
+            ticket = session.get(TicketRow, ticket_id)
+            if ticket is None or ticket.workspace_id != caller["workspace_id"]:
+                raise HTTPException(404, "Ticket not found")
+            rows = session.scalars(
+                select(InvestigationRow)
+                .where(InvestigationRow.ticket_id == ticket_id)
+                .order_by(InvestigationRow.created_at.desc())
+            ).all()
+            return [Investigation.model_validate(row.payload) for row in rows]
+
     @app.post("/api/tickets/{ticket_id}/investigations", response_model=Investigation)
     async def start_investigation(
         ticket_id: str,
@@ -101,19 +151,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         caller: dict = Depends(identity),
     ):
         with database.session() as session:
-            ticket = session.get(TicketRow, ticket_id)
-            if ticket is None or ticket.workspace_id != caller["workspace_id"]:
-                raise HTTPException(404, "Ticket not found")
-            ticket_contract = Ticket.model_validate(ticket.payload)
-            existing = session.scalar(
-                select(InvestigationRow).where(
-                    InvestigationRow.workspace_id == caller["workspace_id"],
-                    InvestigationRow.ticket_id == ticket_id,
-                    InvestigationRow.idempotency_key == idempotency_key,
+            if database.engine.dialect.name == "postgresql":
+                session.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:workspace))"),
+                    {"workspace": caller["workspace_id"]},
                 )
+            ticket_row = session.get(TicketRow, ticket_id)
+            if ticket_row is None or ticket_row.workspace_id != caller["workspace_id"]:
+                raise HTTPException(404, "Ticket not found")
+            ticket = Ticket.model_validate(ticket_row.payload)
+            scope = (
+                InvestigationRow.workspace_id == caller["workspace_id"],
+                InvestigationRow.ticket_id == ticket_id,
+                InvestigationRow.idempotency_key == idempotency_key,
             )
+            existing = session.scalar(select(InvestigationRow).where(*scope))
             if existing:
                 return Investigation.model_validate(existing.payload)
+            recent = session.scalar(
+                select(func.count())
+                .select_from(InvestigationRow)
+                .where(
+                    InvestigationRow.workspace_id == caller["workspace_id"],
+                    InvestigationRow.created_at >= datetime.now(UTC) - timedelta(hours=1),
+                )
+            )
+            if recent >= settings.max_investigations_per_hour:
+                raise HTTPException(429, "Workspace hourly investigation limit reached")
             investigation = Investigation(
                 id=str(uuid4()),
                 ticket_id=ticket_id,
@@ -132,13 +196,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     payload=investigation.model_dump(mode="json"),
                 )
             )
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                existing = session.scalar(select(InvestigationRow).where(*scope))
+                if existing is None:
+                    raise
+                return Investigation.model_validate(existing.payload)
         investigation = await investigate(
-            ticket_contract,
+            ticket,
             investigation,
             retrieval,
             provider,
             settings,
+            tools=tools,
         )
         with database.session() as session:
             row = session.get(InvestigationRow, investigation.id)
@@ -153,5 +225,63 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if row is None or row.workspace_id != caller["workspace_id"]:
                 raise HTTPException(404, "Investigation not found")
             return Investigation.model_validate(row.payload)
+
+    @app.get("/api/investigations/{investigation_id}/reviews", response_model=list[Review])
+    def list_reviews(investigation_id: str, caller: dict = Depends(identity)):
+        with database.session() as session:
+            parent = session.get(InvestigationRow, investigation_id)
+            if parent is None or parent.workspace_id != caller["workspace_id"]:
+                raise HTTPException(404, "Investigation not found")
+            return [
+                Review.model_validate(row.payload)
+                for row in session.scalars(
+                    select(ReviewRow).where(ReviewRow.investigation_id == investigation_id)
+                ).all()
+            ]
+
+    @app.post(
+        "/api/investigations/{investigation_id}/reviews", response_model=Review, status_code=201
+    )
+    def create_review(
+        investigation_id: str, payload: ReviewCreate, caller: dict = Depends(identity)
+    ):
+        with database.session() as session:
+            parent = session.scalar(
+                select(InvestigationRow)
+                .where(
+                    InvestigationRow.id == investigation_id,
+                    InvestigationRow.workspace_id == caller["workspace_id"],
+                )
+                .with_for_update()
+            )
+            if parent is None:
+                raise HTTPException(404, "Investigation not found")
+            investigation = Investigation.model_validate(parent.payload)
+            if investigation.state != "awaiting_review" or investigation.draft is None:
+                raise HTTPException(409, "No reviewable draft exists")
+            if payload.draft_revision != investigation.draft_revision:
+                raise HTTPException(409, "Stale draft revision")
+            review = Review(
+                **payload.model_dump(),
+                id=str(uuid4()),
+                investigation_id=investigation_id,
+                reviewer_id=caller["reviewer_id"],
+                created_at=datetime.now(UTC),
+            )
+            session.add(
+                ReviewRow(
+                    id=review.id,
+                    investigation_id=investigation_id,
+                    workspace_id=caller["workspace_id"],
+                    draft_revision=payload.draft_revision,
+                    payload=review.model_dump(mode="json"),
+                )
+            )
+            try:
+                session.commit()
+            except IntegrityError as exc:
+                session.rollback()
+                raise HTTPException(409, "This draft revision has already been reviewed") from exc
+            return review
 
     return app
