@@ -1,0 +1,21 @@
+{
+  "accounts": [
+    {"id":"acct_active","workspace_id":"demo","status":"active","plan":"starter","requests_per_minute":60},
+    {"id":"acct_pro","workspace_id":"demo","status":"active","plan":"pro","requests_per_minute":600},
+    {"id":"acct_suspended","workspace_id":"demo","status":"suspended","plan":"starter","requests_per_minute":60},
+    {"id":"acct_revoked","workspace_id":"demo","status":"revoked","plan":"starter","requests_per_minute":60},
+    {"id":"acct_other","workspace_id":"other","status":"active","plan":"pro","requests_per_minute":600}
+  ],
+  "health": {
+    "webhooks":{"status":"operational","checked_at":"synthetic fixture"},
+    "api":{"status":"operational","checked_at":"synthetic fixture"}
+  },
+  "incidents": [
+    {"id":"INC-001","workspace_id":"demo","product_version":"v2","service":"webhooks","status":"resolved","summary":"Past webhook delivery backlog; no active disruption."}
+  ],
+  "failure_examples": {
+    "unknown_account":"acct_missing",
+    "denied_account":"acct_other",
+    "health_error":{"service_name":"webhooks","status":"error","message":"Service health unavailable"}
+  }
+}
