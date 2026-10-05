@@ -13,6 +13,8 @@ export type GitHubStatus = {
   login?: string;
   scopes?: string[] | string;
   missing?: string[];
+  method?: "token" | "oauth";
+  error?: string;
 };
 export type CommitDetail = {
   sha: string;

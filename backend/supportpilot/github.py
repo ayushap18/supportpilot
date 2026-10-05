@@ -63,7 +63,12 @@ def build_github_router(database, retrieval, identity, settings):
             raise HTTPException(403, "Only workspace admins can manage GitHub integrations")
         return caller
 
+    pat = settings.github_token.get_secret_value()
+    pat_login = {}
+
     def missing():
+        if pat:
+            return []
         values = {
             "GITHUB_CLIENT_ID": settings.github_client_id,
             "GITHUB_CLIENT_SECRET": settings.github_client_secret.get_secret_value(),
@@ -81,6 +86,8 @@ def build_github_router(database, retrieval, identity, settings):
             raise HTTPException(503, "Integration encryption configuration is invalid") from exc
 
     def client_for(caller):
+        if pat:
+            return GitHubClient(pat)
         with database.session() as session:
             row = session.get(GitHubConnectionRow, caller["workspace_id"])
             if row is None:
@@ -99,7 +106,29 @@ def build_github_router(database, retrieval, identity, settings):
         return row
 
     @router.get("/status")
-    def status(caller=Depends(identity)):
+    async def status(caller=Depends(identity)):
+        if pat:
+            if "login" not in pat_login:
+                try:
+                    pat_login["login"] = (await GitHubClient(pat).get("/user"))["login"]
+                except HTTPException:
+                    return {
+                        "configured": True,
+                        "connected": False,
+                        "login": None,
+                        "scopes": [],
+                        "missing": [],
+                        "method": "token",
+                        "error": "Server GitHub token was rejected",
+                    }
+            return {
+                "configured": True,
+                "connected": True,
+                "login": pat_login["login"],
+                "scopes": [],
+                "missing": [],
+                "method": "token",
+            }
         with database.session() as session:
             row = session.get(GitHubConnectionRow, caller["workspace_id"])
             return {
@@ -108,6 +137,7 @@ def build_github_router(database, retrieval, identity, settings):
                 "login": row.login if row else None,
                 "scopes": row.scopes.split(",") if row else [],
                 "missing": missing() if caller.get("role", "admin") == "admin" else [],
+                "method": "oauth",
             }
 
     @router.post("/connect")

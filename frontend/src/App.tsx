@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
-  ArrowDownLeft,
+  ArrowUpRight,
+  ChevronsUpDown,
   LayoutDashboard,
   Settings2,
   RefreshCw,
@@ -55,7 +56,24 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Separator } from "@/components/ui/separator";
+import { Kbd } from "@/components/ui/kbd";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Overview,
   ActivityList,
@@ -106,7 +124,36 @@ type View =
   | "guide";
 const NAV = [
   {
+    id: "overview",
+    group: "Support",
+    label: "Overview",
+    icon: LayoutDashboard,
+    description: "Your team's support work, in one clear view.",
+  },
+  {
+    id: "workspace",
+    group: "Support",
+    label: "Tickets",
+    icon: Inbox,
+    description: "Triage, investigate, and resolve with evidence.",
+  },
+  {
+    id: "reviews",
+    group: "Support",
+    label: "Review queue",
+    icon: ClipboardCheck,
+    description: "Current drafts waiting for a human decision.",
+  },
+  {
+    id: "knowledge",
+    group: "Support",
+    label: "Knowledge",
+    icon: BookOpen,
+    description: "Manage the source material behind your team's answers.",
+  },
+  {
     id: "repositories",
+    group: "Engineering",
     label: "Repositories",
     icon: GitBranch,
     description:
@@ -114,54 +161,36 @@ const NAV = [
   },
   {
     id: "agents",
+    group: "Engineering",
     label: "Agent runs",
     icon: Terminal,
     description:
       "Queue coding tasks and inspect results, artifacts, and reported usage.",
   },
   {
-    id: "overview",
-    label: "Overview",
-    icon: LayoutDashboard,
-    description: "Your team's support work, in one clear view.",
-  },
-  {
-    id: "workspace",
-    label: "Tickets",
-    icon: Inbox,
-    description: "Triage, investigate, and resolve with evidence.",
-  },
-  {
-    id: "reviews",
-    label: "Review queue",
-    icon: ClipboardCheck,
-    description: "Current drafts waiting for a human decision.",
-  },
-  {
-    id: "knowledge",
-    label: "Knowledge",
-    icon: BookOpen,
-    description: "Manage the source material behind your team's answers.",
-  },
-  {
     id: "activity",
+    group: "Workspace",
     label: "Activity",
     icon: Activity,
     description: "A shared record of investigations, decisions, and handoffs.",
   },
   {
     id: "settings",
+    group: "Workspace",
     label: "Workspace",
     icon: Settings2,
     description: "Your team, execution limits, and readiness checks.",
   },
   {
     id: "guide",
+    group: "Workspace",
     label: "How it works",
     icon: Layers3,
     description: "From context to evidence to a reviewed decision.",
   },
 ] as const;
+const NAV_GROUPS = ["Support", "Engineering", "Workspace"] as const;
+
 export default function App() {
   const [token, setToken] = useState("");
   const [tokenEntry, setTokenEntry] = useState("");
@@ -188,6 +217,17 @@ export default function App() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [view, setView] = useState<View>("overview");
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const [operations, setOperations] = useState<Operations | null>(null);
   const [queuePage, setQueuePage] = useState(1),
     [queueTotal, setQueueTotal] = useState(0);
@@ -524,276 +564,369 @@ export default function App() {
   const cited = new Set(investigation?.draft?.evidence_ids ?? []);
   const sources = investigation?.evidence.filter((e) => cited.has(e.id)) ?? [];
 
+  const reviewCount = operations?.counts.awaiting_review ?? 0;
+  const initials = (workspace || "SP").slice(0, 2).toUpperCase();
+  const navList = (onPick: (id: View) => void) =>
+    NAV_GROUPS.map((group) => (
+      <div className="nav-group" key={group}>
+        <div className="nav-caption">{group}</div>
+        {NAV.filter((item) => item.group === group).map((item) => (
+          <Button
+            key={item.id}
+            variant="ghost"
+            className={"nav-link " + (view === item.id ? "active" : "")}
+            aria-current={view === item.id ? "page" : undefined}
+            disabled={!!busy}
+            onClick={() => onPick(item.id)}
+          >
+            <item.icon size={16} />
+            {item.label}
+            {item.id === "reviews" && reviewCount > 0 && (
+              <span className="nav-count">{reviewCount}</span>
+            )}
+          </Button>
+        ))}
+      </div>
+    ));
+  const openComposer = () => {
+    composerTrigger.current = document.activeElement as HTMLElement;
+    setComposer(true);
+    setForm(EMPTY);
+    setError("");
+  };
+
+  if (!token)
+    return (
+      <div className="auth-shell">
+        <section className="auth-story" aria-label="About SupportPilot">
+          <a className="brand" href="/" aria-label="SupportPilot home">
+            <span className="brand-mark">
+              <Layers3 size={18} />
+            </span>
+            SupportPilot
+          </a>
+          <div className="auth-copy">
+            <span className="auth-chip">
+              <span className="status-dot" />
+              {mode === "fixture" ? "Fixture demo workspace" : "Live workspace"}
+            </span>
+            <h1>Resolve with evidence.</h1>
+            <p>
+              Investigate tickets against your docs and code, trace every step,
+              and keep the final decision with your team.
+            </p>
+            <ul className="auth-points">
+              <li>
+                <FileText size={16} />
+                <div>
+                  <strong>Cited drafts</strong>
+                  <span>Every answer links the sources it used.</span>
+                </div>
+              </li>
+              <li>
+                <GitBranch size={16} />
+                <div>
+                  <strong>Repository context</strong>
+                  <span>GitHub commits, issues, and docs in one place.</span>
+                </div>
+              </li>
+              <li>
+                <Terminal size={16} />
+                <div>
+                  <strong>Coding agents</strong>
+                  <span>Hand off to Codex, Claude Code, or Antigravity.</span>
+                </div>
+              </li>
+            </ul>
+          </div>
+          <span className="auth-foot">
+            <ShieldCheck size={14} /> Drafts never reach customers without human
+            approval.
+          </span>
+        </section>
+        <section className="auth-panel">
+          <form onSubmit={connect} className="auth-form">
+            <h2>Connect to SupportPilot</h2>
+            <p>
+              Use the private workspace token from your local configuration or
+              deployment administrator.
+            </p>
+            {error && (
+              <div className="alert error" role="alert">
+                <TriangleAlert size={16} />
+                {error}
+              </div>
+            )}
+            <label htmlFor="workspace-token">Workspace token</label>
+            <div className="token-field">
+              <KeyRound size={16} />
+              <Input
+                id="workspace-token"
+                type="password"
+                autoComplete="off"
+                autoFocus
+                required
+                minLength={24}
+                value={tokenEntry}
+                onChange={(e) => setTokenEntry(e.target.value)}
+                placeholder="sp_••••••••••••••••••••••••"
+              />
+            </div>
+            <Button variant="default" className="primary" disabled={!!busy}>
+              {busy === "connect" ? (
+                <LoaderCircle size={16} className="spin" />
+              ) : (
+                <ArrowRight size={16} />
+              )}
+              Connect workspace
+            </Button>
+            <small>
+              Your token stays in memory and clears when you reload.
+            </small>
+          </form>
+        </section>
+      </div>
+    );
+
   return (
     <TooltipProvider delayDuration={250}>
       <div className="app-shell">
         <aside className="sidebar" aria-label="Main navigation">
           <a className="brand" href="/" aria-label="SupportPilot home">
             <span className="brand-mark">
-              <Layers3 size={21} />
+              <Layers3 size={18} />
             </span>
             SupportPilot
-            <Badge variant="outline" className="brand-beta">
-              BETA
-            </Badge>
           </a>
-          <div className="workspace-label">
-            <span className="workspace-icon">R</span>
-            <div>
-              {workspace || "Your workspace"}
-              <span>
-                {operations?.role
-                  ? operations.role + " access"
-                  : "Internal support team"}
-              </span>
-            </div>
-            <ChevronRight size={15} />
-          </div>
-          <Separator className="sidebar-separator" />
-          <div className="nav-caption">WORKSPACE</div>
-          {NAV.map((item) => (
-            <Button
-              key={item.id}
-              variant="ghost"
-              className={"nav-link " + (view === item.id ? "active" : "")}
-              aria-current={view === item.id ? "page" : undefined}
-              disabled={!token || !!busy}
-              onClick={() => navigate(item.id)}
-            >
-              <item.icon size={17} />
-              {item.label}
-              {item.id === "reviews" &&
-                operations &&
-                operations.counts.awaiting_review > 0 && (
-                  <span>{operations.counts.awaiting_review}</span>
-                )}
-            </Button>
-          ))}
-          <a
-            className="nav-link"
-            href="https://github.com/ayushap18/supportpilot/blob/main/docs/EVALUATION.md"
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
+            className="palette-trigger"
+            onClick={() => setPaletteOpen(true)}
           >
-            <FlaskConical size={18} />
-            Evaluation plan
-            <ArrowDownLeft size={14} className="external" />
-          </a>
-          <Card className="sidebar-card">
-            <CardContent>
-              <ShieldCheck size={23} />
-              <h3>You have the final say.</h3>
-              <p>
-                Every response is a draft. Review the evidence before approving.
-              </p>
-              <span className="safety-status">
-                <span className="status-dot" /> HUMAN REVIEW BUILT IN
-              </span>
-            </CardContent>
-          </Card>
-          <div className="sidebar-footer">
-            <span className="avatar">
-              {token ? workspace.slice(0, 2).toUpperCase() : "SP"}
-            </span>
-            <div>
-              {token ? workspace : "Not connected"}
-              <span>
-                {token ? "Workspace reviewer" : "Connect to get started"}
-              </span>
-            </div>
-            {token && (
-              <Button
-                variant="ghost"
-                title="Disconnect"
-                disabled={!!busy}
-                aria-label="Disconnect"
-                onClick={disconnect}
-              >
-                <LogOut size={17} />
-              </Button>
-            )}
+            <Search size={14} />
+            Search or jump to…
+            <Kbd>⌘K</Kbd>
+          </button>
+          <nav className="nav-groups">{navList(navigate)}</nav>
+          <div className="sidebar-links">
+            <a
+              className="nav-link"
+              href="https://github.com/ayushap18/supportpilot/blob/main/docs/EVALUATION.md"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <FlaskConical size={16} />
+              Evaluation plan
+              <ArrowUpRight size={13} className="external" />
+            </a>
           </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" className="sidebar-footer">
+                <Avatar className="avatar">
+                  <AvatarFallback>{initials}</AvatarFallback>
+                </Avatar>
+                <div>
+                  {workspace}
+                  <span>{operations?.role ?? "member"} access</span>
+                </div>
+                <ChevronsUpDown size={14} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className="w-52">
+              <DropdownMenuLabel>{workspace}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => navigate("settings")}>
+                <Settings2 /> Workspace settings
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <a
+                  href="https://github.com/ayushap18/supportpilot"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Code2 /> Source on GitHub
+                </a>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={disconnect} disabled={!!busy}>
+                <LogOut /> Disconnect
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </aside>
+
+        <CommandDialog
+          open={paletteOpen}
+          onOpenChange={setPaletteOpen}
+          title="Command palette"
+          description="Jump to a view or run an action"
+        >
+          <CommandInput placeholder="Type a command or search…" />
+          <CommandList>
+            <CommandEmpty>No results.</CommandEmpty>
+            <CommandGroup heading="Actions">
+              <CommandItem
+                onSelect={() => {
+                  setPaletteOpen(false);
+                  openComposer();
+                }}
+              >
+                <Plus /> New ticket
+              </CommandItem>
+            </CommandGroup>
+            {NAV_GROUPS.map((group) => (
+              <CommandGroup heading={group} key={group}>
+                {NAV.filter((item) => item.group === group).map((item) => (
+                  <CommandItem
+                    key={item.id}
+                    value={item.label}
+                    keywords={[item.group]}
+                    onSelect={() => {
+                      setPaletteOpen(false);
+                      navigate(item.id);
+                    }}
+                  >
+                    <item.icon /> {item.label}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ))}
+            <CommandGroup heading="Session">
+              <CommandItem
+                onSelect={() => {
+                  setPaletteOpen(false);
+                  disconnect();
+                }}
+              >
+                <LogOut /> Disconnect
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
+        </CommandDialog>
 
         <main className="main-shell">
           <header className="topbar">
             <div className="breadcrumb">
               <Dialog open={navigationOpen} onOpenChange={setNavigationOpen}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="mobile-menu"
-                      aria-label="Open navigation"
-                      onClick={() => setNavigationOpen(true)}
-                    >
-                      <Menu size={19} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Open navigation</TooltipContent>
-                </Tooltip>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="mobile-menu"
+                  aria-label="Open navigation"
+                  onClick={() => setNavigationOpen(true)}
+                >
+                  <Menu size={18} />
+                </Button>
                 <DialogContent className="mobile-navigation">
                   <DialogHeader>
                     <DialogTitle>SupportPilot</DialogTitle>
-                    <DialogDescription>
-                      Your support workspace
-                    </DialogDescription>
+                    <DialogDescription>{workspace} workspace</DialogDescription>
                   </DialogHeader>
-                  {NAV.map((item) => (
-                    <Button
-                      key={item.id}
-                      variant="ghost"
-                      disabled={!token || !!busy}
-                      onClick={() => navigate(item.id)}
-                    >
-                      <item.icon size={17} />
-                      {item.label}
-                    </Button>
-                  ))}
-                  <Button variant="ghost" asChild>
-                    <a
-                      href="https://github.com/ayushap18/supportpilot"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <Code2 />
-                      GitHub project
-                    </a>
+                  {navList(navigate)}
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      disconnect();
+                      setNavigationOpen(false);
+                    }}
+                  >
+                    <LogOut />
+                    Disconnect
                   </Button>
-                  {token && (
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        disconnect();
-                        setNavigationOpen(false);
-                      }}
-                    >
-                      <LogOut />
-                      Disconnect
-                    </Button>
-                  )}
                 </DialogContent>
               </Dialog>
-              <PanelLeft size={16} className="desktop-panel-icon" />
-              Workspace <ChevronRight size={14} />{" "}
+              <span className="crumb-muted">{activeView.group}</span>
+              <ChevronRight size={13} className="crumb-sep" />
               <strong>{activeView.label}</strong>
             </div>
             <div className="topbar-right">
-              <span className="mode-badge">
+              <span className={"mode-badge " + mode}>
                 <span className="status-dot" />
-                {mode === "fixture" ? "Fixture demo" : "Live model"}
+                {mode === "fixture" ? "Fixture mode" : "Live model"}
               </span>
-              <a
-                href="https://github.com/ayushap18/supportpilot"
-                target="_blank"
-                rel="noreferrer"
-              >
-                <Code2 size={15} /> GitHub <ArrowRight size={13} />
-              </a>
-            </div>
-          </header>
-          <div className="page-heading">
-            <div>
-              <div className="eyebrow">YOUR SUPPORT COMMAND CENTER</div>
-              <h1>
-                {token
-                  ? activeView.id === "overview"
-                    ? "Your support, in focus."
-                    : activeView.label
-                  : "Resolve with evidence."}
-              </h1>
-              <p>
-                {token
-                  ? activeView.description
-                  : "Investigate faster. Trace every answer. Keep the final decision."}
-              </p>
-            </div>
-            <div className="heading-actions">
-              {token && (
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label="Refresh workspace"
-                  disabled={!!busy}
-                  onClick={async () => {
-                    setBusy("refresh");
-                    try {
-                      await refreshWorkspace();
-                      if (
-                        selected &&
-                        (view === "workspace" || view === "reviews")
-                      ) {
-                        await selectTicket(
-                          await api<Ticket>("/tickets/" + selected.id),
-                        );
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Refresh workspace"
+                    disabled={!!busy}
+                    onClick={async () => {
+                      setBusy("refresh");
+                      try {
+                        await refreshWorkspace();
+                        if (
+                          selected &&
+                          (view === "workspace" || view === "reviews")
+                        ) {
+                          await selectTicket(
+                            await api<Ticket>("/tickets/" + selected.id),
+                          );
+                        }
+                      } catch (e) {
+                        setError((e as Error).message);
+                      } finally {
+                        setBusy("");
                       }
-                    } catch (e) {
-                      setError((e as Error).message);
-                    } finally {
-                      setBusy("");
-                    }
-                  }}
-                >
-                  <RefreshCw size={15} />
-                </Button>
-              )}
+                    }}
+                  >
+                    <RefreshCw
+                      size={15}
+                      className={busy === "refresh" ? "spin" : ""}
+                    />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Refresh</TooltipContent>
+              </Tooltip>
               <Button
                 variant="default"
+                size="sm"
                 className="primary"
-                disabled={!token || !!busy}
-                onClick={() => {
-                  composerTrigger.current =
-                    document.activeElement as HTMLElement;
-                  setComposer(true);
-                  setForm(EMPTY);
-                  setError("");
-                }}
+                disabled={!!busy}
+                onClick={openComposer}
               >
-                <Plus size={17} />
+                <Plus size={15} />
                 New ticket
               </Button>
             </div>
+          </header>
+          <div className="page-heading">
+            <h1>
+              {activeView.id === "overview"
+                ? "Your support, in focus."
+                : activeView.label}
+            </h1>
+            <p>{activeView.description}</p>
           </div>
-          {mode === "fixture" && (
-            <div className="demo-note">
-              <FlaskConical size={16} />
-              <span>
-                <strong>Support investigations use fixture mode.</strong>{" "}
-                Deterministic responses and lexical retrieval. GitHub
-                connections and local coding agents use their separately
-                configured services.
-              </span>
-            </div>
-          )}
           {error && (
             <div className="alert error" role="alert">
-              <TriangleAlert size={17} />
+              <TriangleAlert size={16} />
               {error}
               <Button
                 variant="ghost"
                 aria-label="Dismiss error"
                 onClick={() => setError("")}
               >
-                <X size={16} />
+                <X size={15} />
               </Button>
             </div>
           )}
           {notice && (
             <div className="alert success" role="status">
-              <Check size={17} />
+              <Check size={16} />
               {notice}
               <Button
                 variant="ghost"
                 aria-label="Dismiss notice"
                 onClick={() => setNotice("")}
               >
-                <X size={16} />
+                <X size={15} />
               </Button>
             </div>
           )}
 
-          {token && view === "workspace" && (
+          {view === "workspace" && (
             <section className="overview-grid" aria-label="Workspace overview">
               {[
                 {
@@ -855,61 +988,7 @@ export default function App() {
               ))}
             </section>
           )}
-          {!token ? (
-            <section className="connect-panel">
-              <div className="connect-art">
-                <div className="orbit-ring">
-                  <ShieldCheck size={43} />
-                </div>
-                <span className="mini-chip">
-                  <FileText size={14} />
-                  Evidence first
-                </span>
-                <h2>
-                  From ticket to clarity.
-                  <br />
-                  <span>One focused workspace.</span>
-                </h2>
-                <p>
-                  Connect your workspace to try a seeded ticket, follow the
-                  investigation, and review the draft.
-                </p>
-              </div>
-              <form onSubmit={connect}>
-                <div className="eyebrow">YOUR SUPPORT WORKSPACE</div>
-                <h2>Connect to SupportPilot</h2>
-                <p>
-                  Use the private workspace token from your local configuration
-                  or deployment administrator.
-                </p>
-                <label htmlFor="workspace-token">Workspace token</label>
-                <div className="token-field">
-                  <KeyRound size={18} />
-                  <Input
-                    id="workspace-token"
-                    type="password"
-                    autoComplete="off"
-                    required
-                    minLength={24}
-                    value={tokenEntry}
-                    onChange={(e) => setTokenEntry(e.target.value)}
-                    placeholder="Enter your workspace token"
-                  />
-                </div>
-                <Button variant="default" className="primary" disabled={!!busy}>
-                  {busy === "connect" ? (
-                    <LoaderCircle size={17} className="spin" />
-                  ) : (
-                    <ArrowRight size={17} />
-                  )}
-                  Connect workspace
-                </Button>
-                <small>
-                  Your token stays in memory and clears when you reload.
-                </small>
-              </form>
-            </section>
-          ) : view === "overview" && operations ? (
+          {view === "overview" && operations ? (
             <div className="operational-content">
               <Overview
                 data={operations}

@@ -12,7 +12,7 @@ export const words = (value: string) => value.replaceAll("_", " ");
 export function StateBadge({ value }: { value: string }) {
   return (
     <Badge variant="outline" className={"state-badge state-" + value}>
-      {words(value)}
+      {words(value).replace(/\bcli\b/gi, "CLI")}
     </Badge>
   );
 }

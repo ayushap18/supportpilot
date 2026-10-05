@@ -140,13 +140,13 @@ export function GitHubView({
               <div>
                 <strong>
                   {status?.connected
-                    ? `Connected as ${status.login}`
-                    : "Connect your GitHub account"}
+                    ? `Connected as ${status.login}${status.method === "token" ? " · server token" : ""}`
+                    : status?.error || "Connect your GitHub account"}
                 </strong>
                 <p>
                   {status?.configured
                     ? "Choose repositories explicitly. Sync captures a bounded snapshot of the default branch."
-                    : "An administrator must configure GitHub OAuth before accounts can connect."}
+                    : "An administrator must configure a GitHub token or OAuth app before accounts can connect."}
                 </p>
               </div>
               <StateBadge
@@ -164,10 +164,12 @@ export function GitHubView({
             <div className="engineering-callout">
               <strong>GitHub setup</strong>
               <p>
-                Create a GitHub OAuth application for your deployed SupportPilot
-                URL. Configure the client ID, client secret, callback URL, and
-                token encryption key on the server. See the deployment guide for
-                exact variables. Credentials never belong in repository content.
+                Set SUPPORTPILOT_GITHUB_TOKEN to a personal access token for a
+                single-team install, or create a GitHub OAuth application for
+                your deployed SupportPilot URL. Configure the client ID, client
+                secret, callback URL, and token encryption key on the server.
+                See the deployment guide for exact variables. Credentials never
+                belong in repository content.
               </p>
               {!!status?.missing?.length && (
                 <p>Missing configuration: {status.missing.join(", ")}</p>
@@ -209,7 +211,7 @@ export function GitHubView({
                 Browse accessible repositories
               </Button>
             )}
-            {admin && status?.connected && (
+            {admin && status?.connected && status.method !== "token" && (
               <Button
                 variant="ghost"
                 disabled={!!busy}

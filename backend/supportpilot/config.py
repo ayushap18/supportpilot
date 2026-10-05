@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     github_client_id: str = ""
     github_client_secret: SecretStr = SecretStr("")
     github_redirect_uri: str = "http://127.0.0.1:8000/api/github/callback"
+    # Server-wide personal access token; skips OAuth for single-team local installs.
+    github_token: SecretStr = SecretStr("")
     integration_encryption_key: SecretStr = SecretStr("")
     model: str = "gpt-4.1-mini"
     embedding_model: str = "text-embedding-3-small"

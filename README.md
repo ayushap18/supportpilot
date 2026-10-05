@@ -40,9 +40,9 @@ GitHub OAuth is a repository connection for an existing workspace, not a replace
 
 ## Interface
 
-The frontend uses React, TypeScript, Tailwind CSS, and ten official shadcn/ui components built on Radix primitives. The dark theme combines charcoal panels, emerald actions, contextual metric cards, and an inspectable tool trace. Desktop and mobile views preserve the complete investigation and review flow.
+The frontend uses React, TypeScript, Tailwind CSS v4, and shadcn/ui (Radix) primitives, including a ⌘K command palette and account menu. A token-based dark design system (Geist type, one emerald accent, semantic status colors) is specified in [docs/DESIGN.md](docs/DESIGN.md). Every stylesheet color resolves to a design token.
 
-Public [21st.dev dashboard references](https://21st.dev/community/components/s/dashboard) informed the composition. No 21st.dev MCP tool was connected, and no paid registry installation is claimed. See the [design plan and component references](docs/DESIGN.md) and [mobile screenshot](docs/screenshots/mobile.png).
+21st.dev catalog components require an `API_KEY_21ST`; none were installed without one. See the design doc for how to add them.
 
 ## Example
 

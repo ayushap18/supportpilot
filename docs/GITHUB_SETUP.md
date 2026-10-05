@@ -6,6 +6,16 @@ An administrator connects GitHub to an existing SupportPilot workspace. Teammate
 
 The pilot discovers accessible repositories page by page. Select repositories deliberately, then synchronize their recent commits, issues, contributor activity, and source inventory. The interface reports scan limits: a bounded snapshot is not a complete code audit. Queue a coding-agent analysis when you need reasoning over the checked-out repository.
 
+## Quick start: server token
+
+For a single team or local install, skip OAuth and give the server a personal access token:
+
+```dotenv
+SUPPORTPILOT_GITHUB_TOKEN=github_pat_or_ghp_token
+```
+
+Restart SupportPilot. **Repositories** then shows "Connected as <login> · server token", and every workspace on this server uses that token. Prefer a fine-grained token limited to the repositories you need. A classic token with `repo` scope can reach every private repository the account can. Rotate the token immediately if it is ever pasted into chat, logs, or commits. To disconnect, remove the variable and restart. Use OAuth instead when workspaces need separate GitHub identities.
+
 ## Configure OAuth
 
 1. Create a GitHub OAuth app for your deployment in GitHub's developer settings. Use your SupportPilot origin as the homepage.

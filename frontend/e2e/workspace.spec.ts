@@ -323,14 +323,12 @@ test("dashboard supports triage, notes, stale context and knowledge lifecycle", 
     page.getByText("Resolution drafted", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Edit context", exact: true }).click();
-  const context = page
-    .getByRole("dialog")
-    .filter({
-      has: page.getByRole("heading", {
-        name: "Edit ticket context",
-        exact: true,
-      }),
-    });
+  const context = page.getByRole("dialog").filter({
+    has: page.getByRole("heading", {
+      name: "Edit ticket context",
+      exact: true,
+    }),
+  });
   await context
     .getByRole("textbox", { name: "Ticket description", exact: true })
     .fill(
@@ -362,11 +360,9 @@ test("dashboard supports triage, notes, stale context and knowledge lifecycle", 
   );
   await page.getByRole("button", { name: "Knowledge", exact: true }).click();
   await page.getByRole("button", { name: "Add document", exact: true }).click();
-  const modal = page
-    .getByRole("dialog")
-    .filter({
-      has: page.getByRole("heading", { name: "Add document", exact: true }),
-    });
+  const modal = page.getByRole("dialog").filter({
+    has: page.getByRole("heading", { name: "Add document", exact: true }),
+  });
   await modal
     .getByLabel("Document title", { exact: true })
     .fill("Browser orchid recovery guide");
@@ -434,4 +430,23 @@ test("dashboard supports triage, notes, stale context and knowledge lifecycle", 
     page.getByRole("heading", { name: "Readiness checks", exact: true }),
   ).toBeVisible();
   await expect(page.getByText("browser-agent", { exact: true })).toBeVisible();
+});
+
+test("command palette jumps between views and opens the composer", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByLabel("Workspace token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect workspace" }).click();
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Type a command or search…").fill("agent");
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Agent runs", level: 1 }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /Search or jump to/ }).click();
+  await page.getByRole("option", { name: "New ticket" }).click();
+  await expect(
+    page.getByRole("heading", { name: "New support ticket" }),
+  ).toBeVisible();
 });

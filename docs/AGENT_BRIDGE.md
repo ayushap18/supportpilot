@@ -26,7 +26,7 @@ The local repository root must match the command argument. When a repository is 
 | Provider | Execution policy | Captured usage |
 | --- | --- | --- |
 | Codex | `exec --json --sandbox read-only` by default; `workspace-write` only with explicit edits. Ignores user config and exec policy rules. | Tokens reported by completed turns; no inferred cost. |
-| Claude Code | Restricted/bare headless invocation, plan mode, built-in `Read,Glob,Grep` only; MCP tools denied. Edits are currently unsupported by this adapter. | Reported tokens and `total_cost_usd` when supplied. |
+| Claude Code | Restricted headless invocation (`--bare` only when `ANTHROPIC_API_KEY` is set, since bare mode skips subscription login), plan mode, built-in `Read,Glob,Grep` only; MCP tools denied. Edits are currently unsupported by this adapter. | Reported tokens and `total_cost_usd` when supplied. |
 | Antigravity (`agy`) | One stdin streaming task with `--sandbox`, explicit edits flag, dedicated worktree. No permission bypass flag. | Reported input/output/cache tokens; no inferred cost. |
 | External report | An administrator manually claims and reports a run via API. No arbitrary executable registration. | Only supplied values. |
 

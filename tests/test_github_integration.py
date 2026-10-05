@@ -271,6 +271,7 @@ def test_oauth_pkce_cookie_binding_single_use_and_encryption(github):
         "login": "octocat",
         "scopes": ["repo", "read:user"],
         "missing": [],
+        "method": "oauth",
     }
 
 
@@ -475,3 +476,24 @@ def test_commit_diff_is_bounded_redacted_and_scoped(github):
     assert result["files"][0]["patch_truncated"]
     assert "private-secret-value" not in response.text
     assert len(result["files"][0]["patch"]) <= 12000
+
+
+def test_server_token_connects_without_oauth(github, settings):
+    _, database, _, _, retrieval = github
+    settings.github_token = SecretStr("github-secret-token")
+    settings.github_client_id = ""
+    settings.integration_encryption_key = SecretStr("")
+    app = FastAPI()
+    app.include_router(
+        build_github_router(
+            database,
+            retrieval,
+            lambda: {"workspace_id": WORKSPACE, "reviewer_id": "alice", "role": "admin"},
+            settings,
+        )
+    )
+    with TestClient(app) as client:
+        status = client.get("/api/github/status").json()
+        assert status["connected"] and status["login"] == "octocat"
+        assert status["method"] == "token" and status["missing"] == []
+        assert client.get("/api/github/repos").json()["items"][0]["full_name"] == "team/project"

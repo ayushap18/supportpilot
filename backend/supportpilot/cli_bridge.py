@@ -42,10 +42,12 @@ def command(provider, model=None, allow_edits=False):
     if provider == "claude_code":
         if allow_edits:
             raise ValueError("Claude bridge currently supports analysis only")
+        # --bare skips keychain reads, so it only works with an API key, not a subscription login.
+        bare = ["--bare"] if os.environ.get("ANTHROPIC_API_KEY") else []
         args = [
             "claude",
             "--restricted",
-            "--bare",
+            *bare,
             "-p",
             "--output-format",
             "json",
