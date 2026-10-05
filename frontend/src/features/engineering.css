@@ -458,3 +458,88 @@
 .engineering-artifact a {
   color: var(--accent);
 }
+
+.runner-status {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--n-5);
+  border-radius: 10px;
+  background: var(--n-1);
+  color: var(--n-9);
+}
+.runner-status > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.runner-status.online {
+  border-color: var(--accent-border);
+  background: linear-gradient(90deg, var(--accent-bg), var(--n-1) 60%);
+}
+.runner-status.online > svg {
+  color: var(--accent);
+}
+.runner-status > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.runner-status strong {
+  color: var(--n-12);
+  font-size: 14px;
+}
+.runner-status .engineering-command {
+  margin-top: 6px;
+}
+.live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: live-pulse 1.4s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+.run-log {
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--n-4);
+  border-radius: 8px;
+  background: var(--n-0);
+  color: var(--n-10);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.run-log > div {
+  overflow-wrap: anywhere;
+}
+.checkbox-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start;
+  gap: 10px;
+}
+.checkbox-row input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.checkbox-row span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.checkbox-row small {
+  color: var(--n-9);
+  font-size: 12px;
+}

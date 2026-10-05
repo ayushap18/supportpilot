@@ -919,6 +919,33 @@ h1 {
 .workspace-choice input {
   accent-color: var(--accent);
 }
+.invitations {
+  margin-bottom: 16px;
+}
+.invitations h3 {
+  margin-bottom: 8px;
+  color: var(--n-11);
+  font-size: 13px;
+  font-weight: 600;
+}
+.invitations .repo-row {
+  border-color: var(--violet-border);
+  background: var(--violet-bg);
+}
+.invite-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px auto;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.invite-list {
+  margin-top: 12px;
+}
+@media (max-width: 620px) {
+  .invite-form {
+    grid-template-columns: 1fr;
+  }
+}
 .picker-hint.padded {
   margin: 0;
   padding: 12px;

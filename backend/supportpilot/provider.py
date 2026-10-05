@@ -1,5 +1,6 @@
 import json
 
+from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
 from supportpilot.retrieval import DIMENSIONS, fixture_embedding
@@ -28,22 +29,35 @@ sends a message.
 class Provider:
     def __init__(self, settings):
         self.settings = settings
+        live = settings.mode == "live"
+        openai_key = settings.openai_api_key.get_secret_value()
+        # OpenAI serves investigations when selected, and embeddings whenever a key exists.
         self.client = (
             AsyncOpenAI(
-                api_key=settings.openai_api_key.get_secret_value() or "fixture-not-a-key",
+                api_key=openai_key or "fixture-not-a-key",
                 timeout=min(settings.timeout_seconds, 20),
                 max_retries=2,
             )
-            if settings.mode == "live"
+            if live and (settings.llm_provider == "openai" or openai_key)
             else None
         )
-        self.embedding_signature = (
-            "fixture-lexical-v1" if settings.mode == "fixture" else settings.embedding_model
+        self.claude = (
+            AsyncAnthropic(
+                # None lets the SDK resolve ANTHROPIC_API_KEY or an `ant auth login` profile.
+                api_key=settings.anthropic_api_key.get_secret_value() or None,
+                timeout=settings.timeout_seconds,
+                max_retries=2,
+            )
+            if live and settings.llm_provider == "anthropic"
+            else None
         )
+        self.embedding_signature = settings.embedding_model if self.client else "fixture-lexical-v1"
 
     async def close(self):
         if self.client:
             await self.client.close()
+        if self.claude:
+            await self.claude.close()
 
     async def embed(self, texts):
         if not self.client:
@@ -56,7 +70,7 @@ class Provider:
         return [item.embedding for item in sorted(result.data, key=lambda item: item.index)]
 
     async def step(self, ticket, evidence, results, allow_tools=True):
-        if not self.client:
+        if not self.client and not self.claude:
             return fixture_step(ticket, evidence, results, allow_tools), Usage(model_rounds=1)
         context = json.dumps(
             {
@@ -68,6 +82,8 @@ class Provider:
         )
         if len(context) > self.settings.max_input_chars:
             raise ValueError("Model input exceeds the configured budget")
+        if self.claude:
+            return await self.claude_step(context)
         response = await self.client.responses.parse(
             model=self.settings.model,
             instructions=INSTRUCTIONS,
@@ -83,6 +99,28 @@ class Provider:
             usage.input_tokens = response.usage.input_tokens
             usage.output_tokens = response.usage.output_tokens
         return response.output_parsed, usage
+
+    async def claude_step(self, context):
+        response = await self.claude.beta.messages.parse(
+            model=self.settings.anthropic_model,
+            # Thinking is always on for Claude Opus 5.5 and counts toward max_tokens.
+            max_tokens=16000,
+            system=INSTRUCTIONS,
+            messages=[{"role": "user", "content": context}],
+            output_format=ModelStep,
+            output_config={"effort": self.settings.anthropic_effort},
+            # Re-run a safety-classifier decline on Anthropic's recommended fallback model.
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+        )
+        if response.stop_reason == "refusal":
+            raise ValueError("The model declined this investigation; a human must review it")
+        if response.stop_reason == "max_tokens" or response.parsed_output is None:
+            raise ValueError("Model did not return a complete structured response")
+        usage = Usage(model_rounds=1)
+        usage.input_tokens = response.usage.input_tokens
+        usage.output_tokens = response.usage.output_tokens
+        return response.parsed_output, usage
 
 
 def fixture_step(ticket, evidence, results, allow_tools):

@@ -20,7 +20,7 @@ import {
   NativeSelectOption,
 } from "@/components/ui/native-select";
 import type { Api, QueueTicket } from "../types";
-import { Empty, SectionHeading, StateBadge } from "./shared";
+import { dateTime, Empty, SectionHeading, StateBadge } from "./shared";
 import {
   githubUrl,
   type GitHubStatus,
@@ -351,13 +351,17 @@ export function GitHubView({
                     disabled={!!busy || !status?.connected}
                     onClick={() =>
                       action("sync", async () => {
-                        setSnapshot(
-                          await api<Snapshot>(
-                            `/github/repositories/${selected}/sync`,
-                            { method: "POST" },
-                          ),
+                        const synced = await api<Snapshot>(
+                          `/github/repositories/${selected}/sync`,
+                          { method: "POST" },
                         );
-                        setNotice("Repository snapshot updated.");
+                        setSnapshot(synced);
+                        setNotice(
+                          "Repository snapshot updated." +
+                            (synced.imported_tickets
+                              ? ` ${synced.imported_tickets} new “support” issue(s) imported as tickets.`
+                              : ""),
+                        );
                       })
                     }
                   >
@@ -390,6 +394,15 @@ export function GitHubView({
             <p className="muted small">
               Sync this repository to collect commits, issues, contributor
               totals, and documentation.
+            </p>
+          )}
+          {snapshot?.stale && (
+            <p className="engineering-notice" role="status">
+              New commits were pushed
+              {snapshot.pushed_at
+                ? ` (${dateTime(snapshot.pushed_at)})`
+                : ""}{" "}
+              since this snapshot. Sync to refresh it.
             </p>
           )}
           {snapshot && (

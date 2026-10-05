@@ -157,8 +157,14 @@ def github(settings, monkeypatch, request):
                     "content": base64.b64encode(state["doc"].encode()).decode(),
                 },
             )
+        if path.endswith("/pulls") and request.method == "POST":
+            data = json.loads(request.content)
+            state["pulls"] = state.get("pulls", []) + [data]
+            return httpx.Response(
+                201, json={"number": 5, "html_url": "https://github.com/team/project/pull/5"}
+            )
         if path.endswith("/issues") and request.method == "GET":
-            return httpx.Response(200, json=remote_issues)
+            return httpx.Response(200, json=remote_issues + state.get("support_issues", []))
         if path.endswith("/issues") and request.method == "POST":
             data = json.loads(request.content)
             issue = {
@@ -497,3 +503,103 @@ def test_server_token_connects_without_oauth(github, settings):
         assert status["connected"] and status["login"] == "octocat"
         assert status["method"] == "token" and status["missing"] == []
         assert client.get("/api/github/repos").json()["items"][0]["full_name"] == "team/project"
+
+
+def test_agent_run_opens_draft_pull_request_explicitly(github):
+    from supportpilot.agent_storage import AgentRunRow
+
+    client, database, _, state, _ = github
+    connect(github)
+    run_id = str(uuid4())
+    payload = {
+        "id": run_id,
+        "status": "completed",
+        "provider": "codex",
+        "task": "Fix the webhook retry bug\nMore detail",
+        "repository_full_name": "team/project",
+        "result": "Changed retry.py; token=ghp_" + "a" * 36,
+        "artifacts": [{"kind": "branch", "label": "supportpilot/" + run_id, "url": None}],
+    }
+    with database.session() as session:
+        session.add(
+            AgentRunRow(id=run_id, workspace_id=WORKSPACE, status="completed", payload=payload)
+        )
+        session.commit()
+    path = f"/api/github/agent-runs/{run_id}/pull-request"
+    # The branch was never pushed, so there is nothing to open a PR from.
+    assert client.post(path, headers=admin()).status_code == 409
+    with database.session() as session:
+        row = session.get(AgentRunRow, run_id)
+        row.payload = {
+            **payload,
+            "artifacts": [{"kind": "branch", "label": f"supportpilot/{run_id} (pushed)"}],
+        }
+        session.commit()
+    assert client.post(path, headers={"Authorization": "Bearer agent"}).status_code == 403
+    assert client.post(path, headers={"Authorization": "Bearer other"}).status_code == 404
+    opened = client.post(path, headers=admin())
+    assert opened.status_code == 201, opened.text
+    pull = state["pulls"][0]
+    assert pull["draft"] is True and pull["head"] == "supportpilot/" + run_id
+    assert pull["base"] == "main" and pull["title"] == "SupportPilot: Fix the webhook retry bug"
+    assert "ghp_" not in pull["body"]
+    assert opened.json()["artifacts"][-1]["url"] == "https://github.com/team/project/pull/5"
+    assert client.post(path, headers=admin()).status_code == 409  # Only once per run.
+
+
+def test_support_issues_become_tickets_on_sync_and_webhook(github, settings):
+    import hashlib
+    import hmac
+
+    from supportpilot.github_storage import GitHubRepositoryRow
+
+    client, database, _, state, _ = github
+    connect(github)
+    repo_id = select_repo(github)
+    issue = {
+        "number": 9,
+        "title": "Webhook retries stop",
+        "body": "After v2 upgrade retries stop. token=ghp_" + "b" * 36,
+        "state": "open",
+        "html_url": "https://github.com/team/project/issues/9",
+        "labels": [{"name": "Support"}],
+        "user": {"login": "cust"},
+    }
+    state["support_issues"] = [
+        issue,
+        {**issue, "number": 10, "labels": [{"name": "bug"}]},
+        {**issue, "number": 11, "pull_request": {}},
+    ]
+    path = f"/api/github/repositories/{repo_id}/sync"
+    assert client.post(path, headers=admin()).json()["imported_tickets"] == 1
+    assert client.post(path, headers=admin()).json()["imported_tickets"] == 0  # Idempotent.
+    with database.session() as session:
+        tickets = session.scalars(select(TicketRow).where(TicketRow.workspace_id == WORKSPACE))
+        subjects = [t.payload["subject"] for t in tickets]
+        assert subjects == ["#9 Webhook retries stop"]
+        assert all("ghp_" not in t.payload["description"] for t in tickets)
+    links = client.get(f"/api/github/repositories/{repo_id}", headers=admin()).json()
+    assert links["linked_issues"][0]["state"] == "imported"
+
+    def send(event, payload, secret="hook-secret"):
+        body = json.dumps(payload).encode()
+        signature = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        return client.post(
+            "/api/github/webhook",
+            content=body,
+            headers={"x-github-event": event, "x-hub-signature-256": signature},
+        )
+
+    assert send("ping", {}).status_code == 404  # Disabled until a secret is configured.
+    settings.github_webhook_secret = SecretStr("hook-secret")
+    assert send("ping", {}, secret="wrong").status_code == 401
+    fresh = {**issue, "number": 12, "title": "Login loop"}
+    opened = send("issues", {"action": "opened", "issue": fresh, "repository": REPO})
+    assert opened.json() == {"event": "issues", "workspaces": 1, "imported": 1}
+    again = send("issues", {"action": "labeled", "issue": fresh, "repository": REPO})
+    assert again.json()["imported"] == 0
+    send("push", {"ref": "refs/heads/main", "repository": REPO})
+    with database.session() as session:
+        snapshot = session.get(GitHubRepositoryRow, repo_id).snapshot
+        assert snapshot["stale"] is True and snapshot["pushed_ref"] == "refs/heads/main"
+    assert "stale" not in client.post(path, headers=admin()).json()

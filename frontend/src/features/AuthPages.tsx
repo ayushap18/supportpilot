@@ -22,9 +22,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export type AuthPage = "home" | "signup" | "signin" | "regenerate" | "token";
+type Invite = {
+  id: string;
+  workspace_id: string;
+  repository: string | null;
+  role: string;
+  invited_by: string;
+};
 type Session = {
   login: string | null;
   can_regenerate: boolean;
+  invites: Invite[];
   workspaces: { workspace_id: string; repository: string; role: string }[];
 };
 type Repo = {
@@ -551,6 +559,14 @@ function GitHubFlow({
       </div>
     );
 
+  const invitations = (
+    <Invitations
+      invites={session.invites || []}
+      working={working}
+      onAccept={(invite) => run(invite.id, `/invites/${invite.id}/accept`)}
+    />
+  );
+
   if (page === "signup")
     return (
       <>
@@ -560,6 +576,7 @@ function GitHubFlow({
         />
         {identity}
         {error && <InlineError message={error} />}
+        {invitations}
         <RepoPicker
           joined={new Set(session.workspaces.map((w) => w.repository))}
           working={working}
@@ -574,9 +591,11 @@ function GitHubFlow({
       <>
         <StepHeading
           title="No workspaces yet"
-          detail={`@${session.login} has not created a workspace.`}
+          detail={`@${session.login} has not created or joined a workspace.`}
         />
         {identity}
+        {error && <InlineError message={error} />}
+        {invitations}
         <Button className="primary" onClick={() => go("signup")}>
           <ArrowRight size={16} />
           Create a workspace
@@ -640,6 +659,7 @@ function GitHubFlow({
       />
       {identity}
       {error && <InlineError message={error} />}
+      {invitations}
       <div
         className="repo-list workspace-choice"
         role="radiogroup"
@@ -692,6 +712,50 @@ function GitHubFlow({
         </button>
       </div>
     </>
+  );
+}
+
+function Invitations({
+  invites,
+  working,
+  onAccept,
+}: {
+  invites: Invite[];
+  working: string;
+  onAccept: (invite: Invite) => void;
+}) {
+  if (!invites.length) return null;
+  return (
+    <section className="invitations" aria-label="Invitations">
+      <h3>You're invited</h3>
+      {invites.map((invite) => (
+        <div className="repo-row" key={invite.id}>
+          <GitBranch size={15} />
+          <div>
+            <strong>{invite.repository || invite.workspace_id}</strong>
+            <span>
+              {invite.role === "admin" ? "Admin" : "Member"} access · invited by{" "}
+              {invite.invited_by}
+            </span>
+          </div>
+          <Button
+            size="sm"
+            disabled={!!working}
+            aria-label={
+              "Accept invitation to " +
+              (invite.repository || invite.workspace_id)
+            }
+            onClick={() => onAccept(invite)}
+          >
+            {working === invite.id ? (
+              <LoaderCircle size={14} className="spin" />
+            ) : (
+              "Accept"
+            )}
+          </Button>
+        </div>
+      ))}
+    </section>
   );
 }
 

@@ -30,6 +30,11 @@ The engineering workspace extends support tickets into repository work:
 - **Repositories:** authorize GitHub, browse accessible repositories, select up to 25, and synchronize bounded snapshots of commits, issues, contributors, activity, files, and documentation. Inspect commit patches and scan limits.
 - **Knowledge:** import README/`docs/` sources or preview and save uploaded UTF-8 Markdown/text files. Imports retain document revisions and search indexing; archive obsolete sources explicitly.
 - **Linked issues:** review a ticket and explicitly publish its subject/description to GitHub. Saved links and uncertain-write reconciliation prevent blind duplicate creation.
+- **Sign up / sign in with GitHub:** choose a repository you can push to and receive a workspace token (shown once, stored hashed). Sign-in checks that the token belongs to your GitHub account; lost tokens are regenerated only after a fresh GitHub authorization. Admins invite teammates by GitHub username.
+- **Issues to tickets:** open issues labelled `support` become linked tickets on sync or via a signed webhook; pushes flag stale snapshots.
+- **Live runner and draft PRs:** `cli_bridge watch` executes queued runs automatically with live progress logs; edit runs can push their branch, and **Open draft PR** creates a draft pull request for review.
+- **Claude or OpenAI:** live investigations can use Claude (`SUPPORTPILOT_LLM_PROVIDER=anthropic`, default model `claude-opus-5-5`) or OpenAI.
+- **Metrics and alerts:** approval rate and median time to first draft / resolution on the Overview; optional Slack alerts for review-ready drafts and finished agent runs.
 - **Agent runs:** queue a ticket-linked task for Codex, Claude Code, Antigravity, or an external-report adapter. Execute named CLIs through the local bridge and inspect results, reported tokens/cost, and branch/patch artifacts.
 
 The server does not execute repository code. The bridge defaults to Codex read-only analysis; Codex edits and Antigravity require explicit `--allow-edits` and a dedicated worktree. Claude Code currently supports analysis only. A finished run does not automatically resolve a ticket or merge code. Provider account quotas and subscription billing are not available through run telemetry.

@@ -31,6 +31,22 @@ SUPPORTPILOT_INTEGRATION_ENCRYPTION_KEY=...   # Fernet key, see below
 
 The sign-in session lasts 30 minutes in an HttpOnly cookie. Workspace tokens stay in browser memory only.
 
+## Team invitations
+
+Workspace admins open **Workspace → Team**, enter a GitHub username, and choose Member or Admin. The invited person opens SupportPilot, verifies with GitHub, and sees **You're invited** during sign-up or sign-in. Accepting checks on GitHub that their account can read the workspace's repository, then issues their own token (shown once). Admins can revoke pending invitations.
+
+## Issues become tickets
+
+Open issues labelled `support` (configurable with `SUPPORTPILOT_GITHUB_SUPPORT_LABEL`) become tickets when you sync a repository, once per issue, linked back to the issue. Pull requests and closed issues are ignored. Issue text is redacted with the standard secret patterns.
+
+For a deployed server, add a repository webhook:
+
+- Payload URL: `https://YOUR-SERVICE/api/github/webhook`, content type `application/json`.
+- Secret: the same value as `SUPPORTPILOT_GITHUB_WEBHOOK_SECRET`. Requests with a wrong signature are rejected, and the endpoint is disabled until the secret is set.
+- Events: **Issues** and **Pushes**. Newly opened, labelled, or reopened `support` issues become tickets immediately. A push marks the repository snapshot "new commits since last sync".
+
+Webhooks cannot reach `127.0.0.1`; locally, use sync.
+
 ## Quick start: server token
 
 For a single team or local install, skip OAuth and give the server a personal access token:

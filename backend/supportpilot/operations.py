@@ -2,6 +2,7 @@
 
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from statistics import median
 from typing import Literal
 from uuid import uuid4
 
@@ -70,6 +71,38 @@ def queue_items(session, workspace_id):
             }
         )
     return sorted(items, key=lambda item: item["updated_at"] or item["created_at"], reverse=True)
+
+
+def team_metrics(items, investigations, reviews):
+    """Outcome metrics from recorded data only; None when nothing has been measured yet."""
+
+    def at(value):
+        return datetime.fromisoformat(str(value)).astimezone(UTC)
+
+    created = {item["id"]: at(item["created_at"]) for item in items}
+    first_draft = {}
+    for inv in investigations:
+        if inv.get("draft") and inv["ticket_id"] in created:
+            stamp = at(inv["created_at"])
+            first_draft[inv["ticket_id"]] = min(first_draft.get(inv["ticket_id"], stamp), stamp)
+    draft_minutes = [
+        max(0.0, (stamp - created[ticket]).total_seconds() / 60)
+        for ticket, stamp in first_draft.items()
+    ]
+    resolution_hours = [
+        max(0.0, (at(item["updated_at"]) - created[item["id"]]).total_seconds() / 3600)
+        for item in items
+        if item["status"] == "resolved" and item.get("updated_at")
+    ]
+    decisions = [review["decision"] for review in reviews]
+    return dict(
+        approval_rate=decisions.count("approve") / len(decisions) if decisions else None,
+        reviews=len(decisions),
+        median_first_draft_minutes=median(draft_minutes) if draft_minutes else None,
+        drafted_tickets=len(draft_minutes),
+        median_resolution_hours=median(resolution_hours) if resolution_hours else None,
+        resolved_tickets=len(resolution_hours),
+    )
 
 
 def build_operations_router(database, identity, settings):
@@ -252,6 +285,7 @@ def build_operations_router(database, identity, settings):
             failed_investigations=sum(inv["state"] == "failed" for inv in investigations),
             knowledge_documents=documents or 0,
         )
+        metrics = team_metrics(items, investigations, reviews)
         today = datetime.now(UTC).date()
         trends = {
             str(today - timedelta(days=offset)): dict(
@@ -348,6 +382,7 @@ def build_operations_router(database, identity, settings):
             activity=sorted(activity, key=lambda event: event["created_at"], reverse=True)[:50],
             recent_tickets=items[:6],
             members=sorted(team.values(), key=lambda member: member["reviewer_id"]),
+            metrics=metrics,
             readiness=[
                 dict(
                     id="workflow",

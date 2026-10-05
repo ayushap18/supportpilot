@@ -83,6 +83,7 @@ import { GitHubView } from "./features/GitHubView";
 import { AgentRunsView } from "./features/AgentRunsView";
 import { KnowledgeView } from "./features/KnowledgeView";
 import { AuthPages, usePage } from "./features/AuthPages";
+import { TeamInvites } from "./features/TeamInvites";
 import { TicketManagement, TicketNotes } from "./features/TicketManagement";
 import { StateBadge, SectionHeading } from "./features/shared";
 import type { Operations, QueueTicket } from "./types";
@@ -974,6 +975,11 @@ export default function App() {
           ) : view === "settings" && operations ? (
             <div className="operational-content">
               <WorkspaceView data={operations} />
+              <TeamInvites
+                api={api}
+                admin={operations.role === "admin"}
+                onError={setError}
+              />
             </div>
           ) : view === "guide" ? (
             <section className="guide-grid">

@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
@@ -15,6 +15,7 @@ from supportpilot.agent_runs import build_agent_router
 from supportpilot.config import Settings
 from supportpilot.github import build_github_router
 from supportpilot.knowledge import build_knowledge_router
+from supportpilot.notifications import notify
 from supportpilot.operations import build_operations_router
 from supportpilot.provider import Provider
 from supportpilot.redaction import redact
@@ -178,6 +179,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/tickets/{ticket_id}/investigations", response_model=Investigation)
     async def start_investigation(
         ticket_id: str,
+        background: BackgroundTasks,
         idempotency_key: str = Header(min_length=8, max_length=120),
         caller: dict = Depends(identity),
     ):
@@ -249,6 +251,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             row = session.get(InvestigationRow, investigation.id)
             row.payload = investigation.model_dump(mode="json")
             session.commit()
+        if investigation.state == "awaiting_review" and investigation.draft:
+            background.add_task(
+                notify,
+                settings,
+                f"SupportPilot · {caller.get('label') or caller['workspace_id']}: draft ready "
+                f"for review ({investigation.draft.outcome.replace('_', ' ')}) for "
+                f"“{ticket.subject}”.",
+            )
         return investigation
 
     @app.get("/api/investigations/{investigation_id}", response_model=Investigation)
@@ -338,7 +348,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(409, "This draft revision has already been reviewed") from exc
             return review
 
-    app.include_router(build_accounts_router(database, settings))
+    app.include_router(build_accounts_router(database, settings, identity))
     app.include_router(build_github_router(database, retrieval, identity, settings))
     app.include_router(build_agent_router(database, identity, settings))
     app.include_router(build_operations_router(database, identity, settings))

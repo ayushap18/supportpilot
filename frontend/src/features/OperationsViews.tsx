@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import type { Operations, QueueTicket } from "../types";
+import type { Metrics, Operations, QueueTicket } from "../types";
 import { dateTime, Empty, SectionHeading, StateBadge, words } from "./shared";
 export function ActivityList({
   data,
@@ -46,6 +46,53 @@ export function ActivityList({
     </Empty>
   );
 }
+function duration(minutes: number) {
+  if (minutes < 1) return "<1 min";
+  if (minutes < 90) return Math.round(minutes) + " min";
+  if (minutes < 60 * 48) return (minutes / 60).toFixed(1) + " h";
+  return (minutes / 1440).toFixed(1) + " d";
+}
+
+function TeamMetrics({ metrics }: { metrics: Metrics }) {
+  const items = [
+    {
+      label: "Approval rate",
+      value:
+        metrics.approval_rate == null
+          ? "—"
+          : Math.round(metrics.approval_rate * 100) + "%",
+      detail: `${metrics.reviews} review decision${metrics.reviews === 1 ? "" : "s"}`,
+    },
+    {
+      label: "Median time to first draft",
+      value:
+        metrics.median_first_draft_minutes == null
+          ? "—"
+          : duration(metrics.median_first_draft_minutes),
+      detail: `${metrics.drafted_tickets} drafted ticket${metrics.drafted_tickets === 1 ? "" : "s"}`,
+    },
+    {
+      label: "Median time to resolution",
+      value:
+        metrics.median_resolution_hours == null
+          ? "—"
+          : duration(metrics.median_resolution_hours * 60),
+      detail: `${metrics.resolved_tickets} resolved · measured to last update`,
+    },
+  ];
+  return (
+    <section className="team-metrics" aria-label="Team performance">
+      {items.map((item) => (
+        <div key={item.label}>
+          <span>{item.label}</span>
+          <strong>{item.value}</strong>
+          <small>{item.detail}</small>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 export function Overview({
   data,
   onTicket,
@@ -110,6 +157,7 @@ export function Overview({
           </Card>
         ))}
       </div>
+      {data.metrics && <TeamMetrics metrics={data.metrics} />}
       <div className="overview-grid">
         <Card className="trend-panel">
           <CardContent>

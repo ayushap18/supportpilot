@@ -37,11 +37,27 @@ test("engineering workspace displays configuration, queues local work, and prese
   await expect(
     page.getByText("Start this run locally", { exact: true }),
   ).toBeVisible();
-  await expect(page.locator(".engineering-command")).toContainText(
-    "python -m supportpilot.cli_bridge run",
-  );
-  await expect(page.locator(".engineering-command")).not.toContainText(TOKEN);
+  await expect(page.getByText("No runner online")).toBeVisible();
+  await expect(
+    page
+      .locator(".engineering-command")
+      .filter({ hasText: "cli_bridge watch" }),
+  ).toContainText("--allow-edits --push");
+  await expect(
+    page.locator(".engineering-command").filter({ hasText: "cli_bridge run" }),
+  ).toBeVisible();
+  for (const command of await page.locator(".engineering-command").all())
+    await expect(command).not.toContainText(TOKEN);
   await expect(page.getByText("Cost: unknown", { exact: true })).toBeVisible();
+  // A runner heartbeat flips the panel through polling, without a manual refresh.
+  await page.request.post("/api/agents/runners/heartbeat", {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+    data: { runner_id: "ci-laptop", providers: ["codex"], allow_edits: false },
+  });
+  await expect(page.getByText("Local runner online")).toBeVisible();
+  await expect(
+    page.getByText("Waiting for a runner to pick this up…"),
+  ).toBeVisible();
   await page.screenshot({
     path: "../docs/screenshots/agent-runs.png",
     fullPage: true,

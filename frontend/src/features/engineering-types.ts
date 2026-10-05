@@ -33,6 +33,9 @@ export type CommitDetail = {
   limits: { files_truncated: boolean; upstream_may_have_more: boolean };
 };
 export type Snapshot = {
+  stale?: boolean;
+  pushed_at?: string;
+  imported_tickets?: number;
   activity?: {
     id: string;
     type: string;
@@ -82,11 +85,22 @@ export type AgentRun = {
   result?: string | Record<string, unknown> | null;
   error?: string | null;
   artifacts?: (string | Record<string, unknown>)[];
+  allow_edits?: boolean;
+  log?: string[];
   usage?: {
     input_tokens?: number | null;
     output_tokens?: number | null;
     cost_usd?: number | null;
   };
+};
+export type AgentRunner = {
+  runner_id: string;
+  providers: string[];
+  repository_full_name: string | null;
+  allow_edits: boolean;
+  push: boolean;
+  last_seen: string;
+  online: boolean;
 };
 export type AgentUsage = {
   runs: number;

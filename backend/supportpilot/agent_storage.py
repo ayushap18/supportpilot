@@ -12,3 +12,12 @@ class AgentRunRow(Base):
     lease_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     claimed_by: Mapped[str | None] = mapped_column(String, nullable=True)
     payload: Mapped[dict] = mapped_column(JSON)
+
+
+class AgentRunnerRow(Base):
+    """Last heartbeat from a local bridge started with `cli_bridge watch`."""
+
+    __tablename__ = "agent_runners"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
+    payload: Mapped[dict] = mapped_column(JSON)

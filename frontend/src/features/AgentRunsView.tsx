@@ -1,5 +1,13 @@
-import { useEffect, useState } from "react";
-import { Check, Copy, Plus, RefreshCw, Terminal } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Check,
+  Copy,
+  GitPullRequest,
+  Plus,
+  Radio,
+  RefreshCw,
+  Terminal,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,6 +29,7 @@ import { githubUrl } from "./engineering-types";
 import type {
   AgentProvider,
   AgentRun,
+  AgentRunner,
   AgentUsage,
   Repository,
 } from "./engineering-types";
@@ -44,13 +53,16 @@ export function AgentRunsView({
     [open, setOpen] = useState(false),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
-    [copied, setCopied] = useState(false),
+    [copied, setCopied] = useState(""),
+    [runners, setRunners] = useState<AgentRunner[]>([]),
+    logEnd = useRef<HTMLDivElement | null>(null),
     [form, setForm] = useState({
       provider: "codex",
       task: "",
       repository_full_name: "",
       model: "",
       ticket_id: "",
+      allow_edits: false,
     });
   async function load() {
     const data = await api<{ items: AgentRun[]; usage: AgentUsage }>(
@@ -58,6 +70,7 @@ export function AgentRunsView({
     );
     setRuns(data.items);
     setUsage(data.usage);
+    setRunners((await api<{ items: AgentRunner[] }>("/agents/runners")).items);
     setSelected((current) =>
       current
         ? data.items.find((run) => run.id === current.id) || current
@@ -80,6 +93,39 @@ export function AgentRunsView({
       .catch((e) => onError(e.message))
       .finally(() => setLoading(false));
   }, []);
+  const active = runs.some((run) => ["queued", "running"].includes(run.status));
+  useEffect(() => {
+    // Poll while work is pending so runner pickup and live logs appear without refreshing.
+    if (!active) return;
+    const timer = setInterval(() => load().catch(() => undefined), 3000);
+    return () => clearInterval(timer);
+  }, [active]);
+  useEffect(() => {
+    logEnd.current?.scrollIntoView({ block: "nearest" });
+  }, [selected?.log?.length]);
+  async function copy(text: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+    } catch {
+      onError("Clipboard unavailable. Select and copy the command manually.");
+    }
+  }
+  async function openPullRequest(run: AgentRun) {
+    setBusy("pull");
+    try {
+      setSelected(
+        await api<AgentRun>(`/github/agent-runs/${run.id}/pull-request`, {
+          method: "POST",
+        }),
+      );
+      await load();
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
   async function refresh() {
     setBusy("refresh");
     try {
@@ -102,6 +148,9 @@ export function AgentRunsView({
           repository_full_name: form.repository_full_name || null,
           model: form.model || null,
           ticket_id: form.ticket_id.trim() || null,
+          allow_edits:
+            form.provider === "antigravity" ||
+            (form.provider === "codex" && form.allow_edits),
         }),
       });
       await load();
@@ -114,10 +163,26 @@ export function AgentRunsView({
       setBusy("");
     }
   }
+  const needsEdits = (run: AgentRun) =>
+    run.allow_edits || run.provider === "antigravity";
   const command = selected
-    ? `python -m supportpilot.cli_bridge run ${selected.id} --repository /absolute/path/to/repo${selected.provider === "antigravity" ? " --allow-edits" : ""}`
+    ? `python -m supportpilot.cli_bridge run ${selected.id} --repository /absolute/path/to/repo${needsEdits(selected) ? " --allow-edits" : ""}`
     : "";
+  const watchCommand =
+    "python -m supportpilot.cli_bridge watch --repository /absolute/path/to/repo --allow-edits --push";
+  const online = runners.filter((runner) => runner.online);
   const provider = providers.find((item) => item.id === form.provider);
+  const pushedBranch = (run: AgentRun) =>
+    (run.artifacts || []).some(
+      (a) =>
+        typeof a === "object" &&
+        a.kind === "branch" &&
+        String(a.label).endsWith("(pushed)"),
+    );
+  const hasPull = (run: AgentRun) =>
+    (run.artifacts || []).some(
+      (a) => typeof a === "object" && a.kind === "pull_request",
+    );
   return (
     <div className="engineering-view">
       <Card>
@@ -151,15 +216,57 @@ export function AgentRunsView({
               </div>
             ))}
           </div>
-          <div className="engineering-callout">
-            <strong>Execution happens on your machine</strong>
-            <p>
-              Queuing creates a task record. Start it with the local bridge
-              after configuring the provider's CLI and authentication. The
-              server does not launch terminals or automatically change
-              repositories. Editing requires explicit local permission; review
-              changes and tests before merging.
-            </p>
+          <div
+            className={"runner-status " + (online.length ? "online" : "")}
+            role="status"
+          >
+            <Radio size={18} />
+            {online.length ? (
+              <div>
+                <strong>
+                  {online.length === 1
+                    ? "Local runner online"
+                    : `${online.length} local runners online`}
+                </strong>
+                {online.map((runner) => (
+                  <p key={runner.runner_id}>
+                    {runner.runner_id} · {runner.providers.join(", ")} ·{" "}
+                    {runner.repository_full_name || "any repository"} ·{" "}
+                    {runner.allow_edits ? "edits allowed" : "read-only"}
+                    {runner.push ? " · pushes branches" : ""}
+                  </p>
+                ))}
+                <p>
+                  Queued runs start automatically. Execution stays on that
+                  machine.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <strong>No runner online</strong>
+                <p>
+                  Start a runner in your repository to execute queued runs
+                  automatically. Set SUPPORTPILOT_API_URL and
+                  SUPPORTPILOT_WORKSPACE_TOKEN in that shell first. Drop
+                  --allow-edits for read-only analysis; --push lets edit runs
+                  push their branch so you can open a draft PR.
+                </p>
+                <div className="engineering-command">
+                  <code>{watchCommand}</code>
+                  <Button
+                    variant="ghost"
+                    aria-label="Copy runner watch command"
+                    onClick={() => copy(watchCommand, "watch")}
+                  >
+                    {copied === "watch" ? (
+                      <Check size={15} />
+                    ) : (
+                      <Copy size={15} />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -200,7 +307,7 @@ export function AgentRunsView({
           <CardContent>
             <SectionHeading
               title="Run history"
-              detail="Refresh to receive updates from a local runner."
+              detail="Updates automatically while runs are queued or running."
               action={
                 <Button
                   aria-label="Refresh agent runs"
@@ -222,7 +329,7 @@ export function AgentRunsView({
                     key={run.id}
                     onClick={() => {
                       setSelected(run);
-                      setCopied(false);
+                      setCopied("");
                     }}
                   >
                     <div>
@@ -272,7 +379,12 @@ export function AgentRunsView({
                     Linked ticket: {selected.ticket_id}
                   </p>
                 )}
-                {selected.status === "queued" && (
+                {selected.status === "queued" && !!online.length && (
+                  <p className="muted small">
+                    Waiting for a runner to pick this up…
+                  </p>
+                )}
+                {selected.status === "queued" && !online.length && (
                   <div className="engineering-callout">
                     <strong>Start this run locally</strong>
                     <p>
@@ -286,18 +398,13 @@ export function AgentRunsView({
                         <Button
                           variant="ghost"
                           aria-label="Copy runner command"
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(command);
-                              setCopied(true);
-                            } catch {
-                              onError(
-                                "Clipboard unavailable. Select and copy the command manually.",
-                              );
-                            }
-                          }}
+                          onClick={() => copy(command, "run")}
                         >
-                          {copied ? <Check size={15} /> : <Copy size={15} />}
+                          {copied === "run" ? (
+                            <Check size={15} />
+                          ) : (
+                            <Copy size={15} />
+                          )}
                         </Button>
                       </div>
                     )}
@@ -315,6 +422,22 @@ export function AgentRunsView({
                       </p>
                     )}
                   </div>
+                )}
+                {!!selected.log?.length && (
+                  <>
+                    <h3 className="engineering-subtitle">
+                      {selected.status === "running" && (
+                        <span className="live-dot" aria-hidden="true" />
+                      )}
+                      {selected.status === "running" ? "Live log" : "Run log"}
+                    </h3>
+                    <div className="run-log" aria-label="Run log" role="log">
+                      {selected.log.slice(-80).map((line, index) => (
+                        <div key={index}>{line}</div>
+                      ))}
+                      <div ref={logEnd} />
+                    </div>
+                  </>
                 )}
                 {selected.result && (
                   <>
@@ -363,6 +486,32 @@ export function AgentRunsView({
                     </div>
                   </>
                 )}
+                {admin &&
+                  selected.status === "completed" &&
+                  selected.repository_full_name &&
+                  !hasPull(selected) &&
+                  (pushedBranch(selected) ? (
+                    <div className="engineering-actions">
+                      <Button
+                        disabled={!!busy}
+                        onClick={() => openPullRequest(selected)}
+                      >
+                        <GitPullRequest size={15} />
+                        {busy === "pull" ? "Opening…" : "Open draft PR"}
+                      </Button>
+                      <span className="muted small">
+                        Opens a draft pull request on GitHub for review. Nothing
+                        is merged.
+                      </span>
+                    </div>
+                  ) : (
+                    needsEdits(selected) && (
+                      <p className="muted small">
+                        To open a draft PR, run edit tasks with a runner started
+                        with --allow-edits --push.
+                      </p>
+                    )
+                  ))}
                 <div className="engineering-run-meta">
                   <span>
                     Input: {selected.usage?.input_tokens ?? "unknown"}
@@ -516,6 +665,30 @@ export function AgentRunsView({
                 </span>
               </label>
             </div>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={form.provider === "antigravity" || form.allow_edits}
+                disabled={
+                  form.provider === "antigravity" ||
+                  form.provider === "claude_code" ||
+                  form.provider === "custom"
+                }
+                onChange={(e) =>
+                  setForm({ ...form, allow_edits: e.target.checked })
+                }
+              />
+              <span>
+                Allow edits in an isolated worktree
+                <small>
+                  {form.provider === "claude_code"
+                    ? "Claude Code runs are analysis-only."
+                    : form.provider === "antigravity"
+                      ? "Antigravity always runs in an isolated worktree."
+                      : "The runner must also be started with --allow-edits."}
+                </small>
+              </span>
+            </label>
             <Button type="submit" disabled={!!busy}>
               {busy === "create" ? "Queuing…" : "Queue task"}
             </Button>

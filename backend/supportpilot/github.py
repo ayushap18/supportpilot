@@ -3,6 +3,8 @@
 import asyncio
 import base64
 import hashlib
+import hmac
+import json
 import secrets
 import time
 from datetime import UTC, datetime, timedelta
@@ -16,6 +18,7 @@ from pydantic import Field
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 
+from supportpilot.agent_storage import AgentRunRow
 from supportpilot.github_client import GitHubClient, exchange_code
 from supportpilot.github_storage import (
     GitHubConnectionRow,
@@ -25,7 +28,7 @@ from supportpilot.github_storage import (
 )
 from supportpilot.knowledge_storage import KnowledgeDocumentRow
 from supportpilot.redaction import redact
-from supportpilot.schemas import Contract
+from supportpilot.schemas import Contract, Ticket
 from supportpilot.storage import TicketRow
 
 
@@ -104,6 +107,87 @@ def build_github_router(database, retrieval, identity, settings):
         if row is None or row.workspace_id != caller["workspace_id"]:
             raise HTTPException(404, "Repository not found")
         return row
+
+    def import_issue(session, workspace_id, repository_id, issue):
+        """Create a ticket for an open issue carrying the support label, once per issue."""
+        labels = {(label.get("name") or "").lower() for label in issue.get("labels") or []}
+        if (
+            "pull_request" in issue
+            or issue.get("state") != "open"
+            or settings.github_support_label.lower() not in labels
+        ):
+            return 0
+        links = session.scalars(
+            select(GitHubIssueRow).where(
+                GitHubIssueRow.workspace_id == workspace_id,
+                GitHubIssueRow.repository_id == repository_id,
+            )
+        )
+        if any(link.payload.get("number") == issue["number"] for link in links):
+            return 0
+        title = redact(issue.get("title") or "Untitled issue")
+        body = redact((issue.get("body") or "").strip())
+        ticket = Ticket(
+            id=str(uuid4()),
+            workspace_id=workspace_id,
+            created_at=datetime.now(UTC),
+            subject=f"#{issue['number']} {title}"[:200],
+            description=(body or f"GitHub issue #{issue['number']}: {title}").ljust(10)[:6000],
+        )
+        session.add(
+            TicketRow(
+                id=ticket.id, workspace_id=workspace_id, payload=ticket.model_dump(mode="json")
+            )
+        )
+        session.add(
+            GitHubIssueRow(
+                id=str(uuid4()),
+                workspace_id=workspace_id,
+                repository_id=repository_id,
+                ticket_id=ticket.id,
+                payload={
+                    "state": "imported",
+                    "ticket_id": ticket.id,
+                    "number": issue["number"],
+                    "html_url": issue.get("html_url"),
+                    "created_at": datetime.now(UTC).isoformat(),
+                },
+            )
+        )
+        return 1
+
+    @router.post("/webhook")
+    async def webhook(request: Request):
+        """GitHub webhook: `support` issues become tickets; pushes mark snapshots stale."""
+        secret = settings.github_webhook_secret.get_secret_value()
+        if not secret:
+            raise HTTPException(404, "GitHub webhooks are not configured")
+        body = await request.body()
+        if len(body) > 5_000_000:
+            raise HTTPException(413, "Webhook payload too large")
+        expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(request.headers.get("x-hub-signature-256", ""), expected):
+            raise HTTPException(401, "Invalid webhook signature")
+        event = request.headers.get("x-github-event", "")
+        data = json.loads(body or b"{}")
+        github_id = str((data.get("repository") or {}).get("id", ""))
+        imported = 0
+        with database.session() as session:
+            rows = session.scalars(
+                select(GitHubRepositoryRow).where(GitHubRepositoryRow.github_id == github_id)
+            ).all()
+            for row in rows:
+                if event == "issues" and data.get("action") in ("opened", "labeled", "reopened"):
+                    imported += import_issue(session, row.workspace_id, row.id, data["issue"])
+                elif event == "push":
+                    row.snapshot = {
+                        **row.snapshot,
+                        "stale": True,
+                        "pushed_at": datetime.now(UTC).isoformat(),
+                        "pushed_ref": str(data.get("ref", ""))[:200],
+                    }
+            session.commit()
+        return {"event": event, "workspaces": len(rows), "imported": imported}
 
     @router.get("/status")
     async def status(caller=Depends(identity)):
@@ -403,6 +487,7 @@ def build_github_router(database, retrieval, identity, settings):
                     "updated_at": i.get("updated_at"),
                     "author": (i.get("user") or {}).get("login"),
                     "is_pull_request": "pull_request" in i,
+                    "labels": [label.get("name") for label in i.get("labels") or []],
                 }
                 for i in issues[:30]
             ],
@@ -450,6 +535,9 @@ def build_github_router(database, retrieval, identity, settings):
         }
         with database.session() as session:
             row = get_repo(session, repository_id, caller)
+            snapshot["imported_tickets"] = sum(
+                import_issue(session, caller["workspace_id"], row.id, issue) for issue in issues
+            )
             row.payload, row.snapshot = repo_summary(metadata), snapshot
             session.commit()
         return repository(repository_id, caller)
@@ -695,5 +783,61 @@ def build_github_router(database, retrieval, identity, settings):
                 "upstream_may_have_more": len(files) >= 300,
             },
         }
+
+    @router.post("/agent-runs/{run_id}/pull-request", status_code=201)
+    async def open_pull_request(run_id: str, caller=Depends(admin)):
+        """Explicitly open a draft PR for a completed agent run whose branch was pushed."""
+        with database.session() as session:
+            row = session.get(AgentRunRow, run_id)
+            if row is None or row.workspace_id != caller["workspace_id"]:
+                raise HTTPException(404, "Agent run not found")
+            run = row.payload
+        if run["status"] != "completed":
+            raise HTTPException(409, "Only completed runs can open a pull request")
+        repo = run.get("repository_full_name")
+        if not repo:
+            raise HTTPException(409, "Link the run to a repository to open a pull request")
+        artifacts = run.get("artifacts") or []
+        if any(a.get("kind") == "pull_request" for a in artifacts):
+            raise HTTPException(409, "A pull request was already opened for this run")
+        pushed = next(
+            (
+                a["label"].removesuffix(" (pushed)")
+                for a in artifacts
+                if a.get("kind") == "branch" and a.get("label", "").endswith(" (pushed)")
+            ),
+            None,
+        )
+        if not pushed:
+            raise HTTPException(
+                409, "No pushed branch. Run the bridge with --allow-edits --push first"
+            )
+        github = client_for(caller)
+        base = (await github.get("/repos/" + repo)).get("default_branch", "main")
+        title = "SupportPilot: " + run["task"].splitlines()[0][:80]
+        body = (
+            f"Opened from SupportPilot agent run `{run_id}` ({run['provider']}).\n\n"
+            f"### Task\n{run['task'][:3000]}\n\n"
+            f"### Agent report\n{redact((run.get('result') or '')[:6000])}\n\n"
+            "_Draft: review the diff and test results before merging._"
+        )
+        pull, _ = await github.request(
+            "POST",
+            "/repos/" + repo + "/pulls",
+            body={"title": title, "head": pushed, "base": base, "body": body, "draft": True},
+        )
+        artifact = {
+            "kind": "pull_request",
+            "label": f"Draft PR #{pull['number']}",
+            "url": pull["html_url"],
+        }
+        with database.session() as session:
+            row = session.get(AgentRunRow, run_id)
+            payload = {**row.payload, "artifacts": [*row.payload["artifacts"], artifact]}
+            session.execute(
+                update(AgentRunRow).where(AgentRunRow.id == run_id).values(payload=payload)
+            )
+            session.commit()
+        return payload
 
     return router

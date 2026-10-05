@@ -703,3 +703,40 @@
   color: var(--accent);
   opacity: 1;
 }
+
+.team-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 16px 0;
+  overflow: hidden;
+  border: 1px solid var(--n-4);
+  border-radius: 12px;
+  background: var(--n-4);
+}
+.team-metrics > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 20px;
+  background: var(--n-2);
+}
+.team-metrics span {
+  color: var(--n-9);
+  font-size: 13px;
+}
+.team-metrics strong {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.team-metrics small {
+  color: var(--n-9);
+  font-size: 12px;
+}
+@media (max-width: 620px) {
+  .team-metrics {
+    grid-template-columns: 1fr;
+  }
+}

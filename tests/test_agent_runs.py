@@ -180,3 +180,29 @@ def test_expiry_does_not_retry_or_pretend_to_stop_process(agents):
     assert response.json()["status"] == "failed"
     assert "unknown" in response.json()["error"]
     assert client.post(path + "/claim", json={"runner_id": "test"}).status_code == 409
+
+
+def test_runner_heartbeat_and_live_log(agents):
+    client, _ = agents
+    beat = {"runner_id": "laptop", "providers": ["codex"], "allow_edits": True}
+    assert client.post("/api/agents/runners/heartbeat", json=beat).status_code == 200
+    runners = client.get("/api/agents/runners").json()["items"]
+    assert runners[0]["online"] and runners[0]["providers"] == ["codex"]
+    agent = {"Authorization": "agent"}
+    assert client.post("/api/agents/runners/heartbeat", json=beat, headers=agent).status_code == 403
+    assert client.get("/api/agents/runners", headers={"Authorization": "other"}).json() == {
+        "items": []
+    }
+
+    run = create(client, allow_edits=True)
+    assert run["allow_edits"] is True and run["log"] == []
+    path = "/api/agents/runs/" + run["id"]
+    lease = client.post(path + "/claim", json={"runner_id": "laptop"}).json()["lease"]
+    lines = {"lease": lease, "lines": ["command: ls", "token=ghp_" + "a" * 36]}
+    assert client.post(path + "/log", json=lines).status_code == 200
+    log = client.get(path).json()["log"]
+    assert log[0] == "command: ls" and "ghp_" not in log[1]
+    forged = {"lease": "x" * 40, "lines": ["spoofed"]}
+    assert client.post(path + "/log", json=forged).status_code == 403
+    second = {"Authorization": "second"}
+    assert client.post(path + "/log", json=lines, headers=second).status_code == 403

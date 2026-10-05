@@ -6,11 +6,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, update
 
-from supportpilot.agent_storage import AgentRunRow
+from supportpilot.agent_storage import AgentRunnerRow, AgentRunRow
+from supportpilot.notifications import notify
 from supportpilot.redaction import redact
 from supportpilot.storage import TicketRow
 
@@ -61,6 +62,8 @@ class CreateRun(BaseModel):
     model: str | None = Field(
         default=None, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
     )
+    # Requests an isolated-worktree edit run; a runner only honors it if started with edits.
+    allow_edits: bool = False
 
 
 class ClaimRun(BaseModel):
@@ -86,6 +89,25 @@ class Artifact(BaseModel):
         if value and not value.startswith("https://"):
             raise ValueError("Artifact links must use HTTPS")
         return value
+
+
+class RunLog(BaseModel):
+    lease: str = Field(min_length=32, max_length=100)
+    lines: list[str] = Field(min_length=1, max_length=50)
+
+
+class Heartbeat(BaseModel):
+    runner_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.-]+$")
+    providers: list[Literal["codex", "claude_code", "antigravity"]] = Field(max_length=3)
+    repository_full_name: str | None = Field(
+        default=None, pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", max_length=201
+    )
+    allow_edits: bool = False
+    push: bool = False
+
+
+LOG_LINES = 300
+RUNNER_ONLINE = timedelta(seconds=45)
 
 
 class CompleteRun(BaseModel):
@@ -166,6 +188,7 @@ def build_agent_router(database, identity, settings):
             "exit_code": None,
             "artifacts": [],
             "error": None,
+            "log": [],
         }
         with database.session() as session:
             if body.ticket_id:
@@ -226,15 +249,66 @@ def build_agent_router(database, identity, settings):
             session.commit()
         return {**payload, "lease": lease}
 
-    @router.post("/runs/{run_id}/complete")
-    def complete(run_id: str, body: CompleteRun, caller=Depends(admin)):
-        digest = hashlib.sha256(body.lease.encode()).hexdigest()
+    def leased(session, run_id, caller, lease):
+        digest = hashlib.sha256(lease.encode()).hexdigest()
+        row = get_row(session, run_id, caller)
+        if row.claimed_by != caller["reviewer_id"] or not secrets.compare_digest(
+            row.lease_hash or "", digest
+        ):
+            raise HTTPException(403, "Run lease does not belong to this runner identity")
+        return row, digest
+
+    @router.post("/runs/{run_id}/log")
+    def append_log(run_id: str, body: RunLog, caller=Depends(admin)):
+        """Live progress from the bridge: short redacted lines, newest LOG_LINES kept."""
         with database.session() as session:
-            row = get_row(session, run_id, caller)
-            if row.claimed_by != caller["reviewer_id"] or not secrets.compare_digest(
-                row.lease_hash or "", digest
-            ):
-                raise HTTPException(403, "Run lease does not belong to this runner identity")
+            row, digest = leased(session, run_id, caller, body.lease)
+            if row.status != "running":
+                raise HTTPException(409, "Run is not running")
+            lines = [redact(line)[:500] for line in body.lines]
+            payload = {**row.payload, "log": (row.payload.get("log", []) + lines)[-LOG_LINES:]}
+            session.execute(
+                update(AgentRunRow)
+                .where(AgentRunRow.id == run_id, AgentRunRow.lease_hash == digest)
+                .values(payload=payload)
+            )
+            session.commit()
+        return {"lines": len(payload["log"])}
+
+    @router.post("/runners/heartbeat")
+    def heartbeat(body: Heartbeat, caller=Depends(admin)):
+        key = caller["workspace_id"] + ":" + body.runner_id
+        payload = {
+            **body.model_dump(),
+            "reviewer_id": caller["reviewer_id"],
+            "last_seen": now(),
+        }
+        with database.session() as session:
+            session.merge(
+                AgentRunnerRow(id=key, workspace_id=caller["workspace_id"], payload=payload)
+            )
+            session.commit()
+        return payload
+
+    @router.get("/runners")
+    def runners(caller=Depends(identity)):
+        cutoff = datetime.now(UTC) - RUNNER_ONLINE
+        with database.session() as session:
+            rows = session.scalars(
+                select(AgentRunnerRow).where(AgentRunnerRow.workspace_id == caller["workspace_id"])
+            ).all()
+            items = [
+                {**r.payload, "online": datetime.fromisoformat(r.payload["last_seen"]) > cutoff}
+                for r in rows
+            ]
+        return {"items": sorted(items, key=lambda r: r["last_seen"], reverse=True)}
+
+    @router.post("/runs/{run_id}/complete")
+    def complete(
+        run_id: str, body: CompleteRun, background: BackgroundTasks, caller=Depends(admin)
+    ):
+        with database.session() as session:
+            row, digest = leased(session, run_id, caller, body.lease)
             if datetime.fromisoformat(row.payload["lease_expires_at"]) < datetime.now(UTC):
                 raise HTTPException(
                     409, "Run lease expired; use expire recovery and create a new run"
@@ -262,6 +336,12 @@ def build_agent_router(database, identity, settings):
             if changed.rowcount != 1:
                 raise HTTPException(409, "Run already finished")
             session.commit()
+        background.add_task(
+            notify,
+            settings,
+            f"SupportPilot · {caller.get('label') or caller['workspace_id']}: "
+            f"{payload['provider']} run {status}: {payload['task'].splitlines()[0][:120]}",
+        )
         return payload
 
     @router.post("/runs/{run_id}/cancel")

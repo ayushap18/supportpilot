@@ -19,11 +19,23 @@ class Settings(BaseSettings):
     api_tokens_json: SecretStr = SecretStr("[]")
     mode: Literal["fixture", "live"] = "fixture"
     openai_api_key: SecretStr = SecretStr("")
+    # Live investigation model provider. Anthropic has no embeddings API, so retrieval uses
+    # OpenAI embeddings when an OpenAI key is set and the lexical index otherwise.
+    llm_provider: Literal["openai", "anthropic"] = "openai"
+    anthropic_api_key: SecretStr = SecretStr("")
+    anthropic_model: str = "claude-opus-5-5"
+    anthropic_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
     github_client_id: str = ""
     github_client_secret: SecretStr = SecretStr("")
     github_redirect_uri: str = "http://127.0.0.1:8000/api/github/callback"
     # OAuth App callback for "Sign in with GitHub" (register a parent path such as .../api).
     github_login_redirect_uri: str = "http://127.0.0.1:8000/api/auth/github/callback"
+    # GitHub issues carrying this label become tickets (on sync, and via the webhook).
+    github_support_label: str = "support"
+    # Shared secret for POST /api/github/webhook (issues and push events).
+    github_webhook_secret: SecretStr = SecretStr("")
+    # Slack incoming webhook for review-ready drafts and finished agent runs (optional).
+    slack_webhook_url: SecretStr = SecretStr("")
     # Server-wide personal access token; skips OAuth for single-team local installs.
     github_token: SecretStr = SecretStr("")
     integration_encryption_key: SecretStr = SecretStr("")
@@ -67,6 +79,9 @@ class Settings(BaseSettings):
             raise ValueError(
                 "GitHub callback must use HTTPS (or local HTTP) at /api/github/callback"
             )
+        slack = self.slack_webhook_url.get_secret_value()
+        if slack and not slack.startswith("https://hooks.slack.com/"):
+            raise ValueError("Slack webhook URL must start with https://hooks.slack.com/")
         login = urlparse(self.github_login_redirect_uri)
         if login.scheme not in {"https", "http"} or login.path != "/api/auth/github/callback":
             raise ValueError("GitHub sign-in callback must end with /api/auth/github/callback")
@@ -88,7 +103,11 @@ class Settings(BaseSettings):
                 raise ValueError("Token and identities must be strings")
             if len(entry["token"]) < 24 or not entry["workspace_id"] or not entry["reviewer_id"]:
                 raise ValueError("Tokens need at least 24 characters and non-empty identities")
-        if self.mode == "live" and not self.openai_api_key.get_secret_value():
+        if (
+            self.mode == "live"
+            and self.llm_provider == "openai"
+            and not self.openai_api_key.get_secret_value()
+        ):
             raise ValueError("Live mode requires SUPPORTPILOT_OPENAI_API_KEY")
         if self.max_rounds < 1 or self.max_rounds > 3 or not 1 <= self.max_tool_calls <= 5:
             raise ValueError("Budgets exceed the supported workflow bounds")

@@ -89,7 +89,16 @@ export type KnowledgeDocument = {
   updated_at: string | null;
   archived: boolean;
 };
+export type Metrics = {
+  approval_rate: number | null;
+  reviews: number;
+  median_first_draft_minutes: number | null;
+  drafted_tickets: number;
+  median_resolution_hours: number | null;
+  resolved_tickets: number;
+};
 export type Operations = {
+  metrics?: Metrics;
   workspace_id: string;
   reviewer_id: string;
   role: "admin" | "agent";

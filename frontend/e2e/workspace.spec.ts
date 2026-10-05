@@ -604,3 +604,24 @@ test("sign in lists workspaces and checks the token; regenerating needs re-autho
     page.getByRole("heading", { name: "Resolve with evidence." }),
   ).toBeVisible();
 });
+
+test("admins invite teammates and see team metrics", async ({ page }) => {
+  await page.goto("/#token");
+  await page.getByLabel("Workspace token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect workspace" }).click();
+  await expect(
+    page.getByRole("region", { name: "Team performance" }),
+  ).toContainText("Approval rate");
+  await page.getByRole("button", { name: "Workspace", exact: true }).click();
+  await page.getByLabel("GitHub username").fill("@octo-teammate");
+  await page.getByLabel("Invite role").selectOption("admin");
+  await page.getByRole("button", { name: "Invite", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("@octo-teammate");
+  const pending = page.getByLabel("Pending invitations");
+  await expect(pending).toContainText("@octo-teammate");
+  await expect(pending).toContainText("Admin");
+  await page
+    .getByRole("button", { name: "Revoke invitation for octo-teammate" })
+    .click();
+  await expect(page.getByText("No pending invitations.")).toBeVisible();
+});

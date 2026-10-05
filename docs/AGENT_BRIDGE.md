@@ -21,6 +21,25 @@ python -m supportpilot.cli_bridge run RUN_UUID --repository /absolute/path/to/re
 
 The local repository root must match the command argument. When a repository is associated with the proposal, its `origin` must match the exact GitHub owner/name using an HTTPS or SSH GitHub remote. The bridge does not clone or fetch automatically. Use a trusted checkout at the intended commit.
 
+## Run queued work automatically (`watch`)
+
+Instead of one command per run, start a runner in your repository and leave it open:
+
+```sh
+python -m supportpilot.cli_bridge watch --repository /absolute/path/to/repository
+```
+
+- It sends a heartbeat every cycle (default 10 s, `--interval 3..300`), so **Agent runs** shows "Local runner online" with its providers, repository, and permissions.
+- It executes queued runs oldest first. It skips runs linked to a different repository, providers whose CLI isn't installed, and edit runs when the runner wasn't started with `--allow-edits`. Edit permission is always granted on the machine, never from the browser.
+- `--allow-edits` lets it execute edit runs (Codex with "Allow edits", and Antigravity) in a dedicated worktree. Add `--push` to commit and push the run's `supportpilot/RUN_UUID` branch after a successful edit run on a linked repository, using your local git credentials.
+- `--once` processes the queue a single time, which is useful in scripts.
+
+While a run executes, the bridge streams short, redacted progress lines (the last 300 are kept) that appear as a **Live log** in the run details. Progress is best effort; the final result is submitted either way.
+
+## Open a draft pull request
+
+When an edit run completes and its branch was pushed (`--push`), **Open draft PR** in the run details opens a *draft* pull request against the repository's default branch through the workspace's GitHub connection. The PR body contains the task and the redacted agent report. The PR link is stored as a run artifact; one PR per run. Nothing is merged.
+
 ## Provider boundaries
 
 | Provider | Execution policy | Captured usage |

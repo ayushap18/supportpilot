@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 from uuid import uuid4
 
@@ -114,7 +115,7 @@ def test_manual_bridge_claim_report_and_isolated_worktree(tmp_path, monkeypatch)
         "repository_full_name": "owner/repo",
         "ticket_context": {"subject": "Webhook broken", "revision": 2},
     }
-    reports = []
+    reports, logs = [], []
 
     def handler(request):
         if request.method == "GET":
@@ -122,6 +123,9 @@ def test_manual_bridge_claim_report_and_isolated_worktree(tmp_path, monkeypatch)
         body = json.loads(request.content)
         if request.url.path.endswith("/claim"):
             return httpx.Response(200, json={**proposal, "lease": "x" * 40})
+        if request.url.path.endswith("/log"):
+            logs.extend(body["lines"])
+            return httpx.Response(200, json={"lines": len(logs)})
         reports.append(body)
         return httpx.Response(200, json={"status": "completed"})
 
@@ -136,9 +140,10 @@ def test_manual_bridge_claim_report_and_isolated_worktree(tmp_path, monkeypatch)
     monkeypatch.setattr(bridge.tempfile, "mkdtemp", lambda **kw: str(tmp_path / "run"))
     (tmp_path / "run").mkdir()
 
-    def fake_execute(args, task, cwd, timeout):
+    def fake_execute(args, task, cwd, timeout, on_output=None):
         assert "Webhook broken" in task and "workspace-write" in args
         assert cwd != repository
+        on_output(b'{"type":"item.started","item":{"type":"command_execution","command":"ls"}}\n')
         (cwd / "README.md").write_text("Proposed change")
         return 0, json.dumps(
             {
@@ -152,6 +157,9 @@ def test_manual_bridge_claim_report_and_isolated_worktree(tmp_path, monkeypatch)
     assert (repository / "README.md").read_text() == "Original content"
     assert reports[0]["artifacts"][0]["kind"] == "branch"
     assert reports[0]["usage"] == {}
+    assert logs[0].startswith("Claimed by ")
+    assert "item.started: ls" in logs
+    assert logs[-1] == "Finished with exit code 0"
     proposal["repository_full_name"] = "different/repo"
     with pytest.raises(ValueError, match="origin"):
         bridge.run_bridge(run_id, repository)
@@ -184,3 +192,53 @@ def test_denied_headless_actions_are_named():
     assert bridge.parse_output("antigravity", output)[0] == ""
     assert bridge.denied_actions(output) == ["RunCommand"]
     assert bridge.denied_actions('{"type":"turn.completed"}') == []
+
+
+def test_watch_runs_eligible_queue_items_once(tmp_path, monkeypatch):
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    subprocess.run(["git", "init", "-q", str(repository)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repository), "remote", "add", "origin", "https://github.com/team/app"],
+        check=True,
+    )
+    queue = [
+        {
+            "id": "r-other",
+            "status": "queued",
+            "provider": "codex",
+            "repository_full_name": "team/other",
+        },
+        {"id": "r-edit", "status": "queued", "provider": "antigravity"},
+        {"id": "r-done", "status": "completed", "provider": "codex"},
+        {"id": "r-ok", "status": "queued", "provider": "codex", "repository_full_name": "team/app"},
+    ]
+    beats = []
+
+    def handler(request):
+        if request.url.path.endswith("/heartbeat"):
+            beats.append(json.loads(request.content))
+            return httpx.Response(200, json={})
+        return httpx.Response(200, json={"items": queue})
+
+    real_client = httpx.Client
+    monkeypatch.setenv("SUPPORTPILOT_WORKSPACE_TOKEN", "token")
+    monkeypatch.setattr(
+        bridge.httpx,
+        "Client",
+        lambda **kw: real_client(**kw, transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setattr(bridge.shutil, "which", lambda name: "/bin/" + name)
+    started = []
+    monkeypatch.setattr(
+        bridge,
+        "run_bridge",
+        lambda run_id, root, edits, timeout, push: started.append((run_id, edits, push)),
+    )
+    assert bridge.watch(repository, once=True) == 0
+    # Read-only runner: other repositories and edit-requiring runs are skipped.
+    assert started == [("r-ok", False, False)]
+    assert beats[0]["repository_full_name"] == "team/app" and beats[0]["allow_edits"] is False
+    started.clear()
+    assert bridge.watch(repository, allow_edits=True, push=True, once=True) == 0
+    assert started == [("r-ok", False, False), ("r-edit", True, True)]

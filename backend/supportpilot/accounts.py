@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 from uuid import uuid4
 
 from cryptography.fernet import Fernet, InvalidToken
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import Field, field_validator
 from sqlalchemy import DateTime, String, Text, UniqueConstraint, delete, select
@@ -53,6 +53,27 @@ class LoginSessionRow(Base):
     intent: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class InviteRow(Base):
+    """A pending or accepted invitation of a GitHub user into a workspace."""
+
+    __tablename__ = "workspace_invites"
+    __table_args__ = (UniqueConstraint("workspace_id", "login"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
+    login: Mapped[str] = mapped_column(String, index=True)  # Lowercased GitHub username.
+    role: Mapped[str] = mapped_column(String)
+    repository: Mapped[str | None] = mapped_column(String, nullable=True)
+    invited_by: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CreateInvite(Contract):
+    # GitHub usernames: alphanumerics and single hyphens, at most 39 characters.
+    login: str = Field(pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
+    role: Literal["admin", "agent"] = "agent"
 
 
 class VerifyToken(Contract):
@@ -103,7 +124,7 @@ def members(database, settings, workspace_id):
     return found
 
 
-def build_accounts_router(database, settings):
+def build_accounts_router(database, settings, identity):
     router = APIRouter(prefix="/api/auth", tags=["auth"])
     secure = settings.github_login_redirect_uri.startswith("https://")
 
@@ -151,6 +172,114 @@ def build_accounts_router(database, settings):
                     .order_by(WorkspaceTokenRow.created_at.desc())
                 )
             ]
+
+    def invite_view(row):
+        return {
+            "id": row.id,
+            "workspace_id": row.workspace_id,
+            "login": row.login,
+            "role": row.role,
+            "repository": row.repository,
+            "invited_by": row.invited_by,
+            "created_at": row.created_at.isoformat(),
+        }
+
+    def pending_for(login):
+        with database.session() as session:
+            return [
+                invite_view(r)
+                for r in session.scalars(
+                    select(InviteRow).where(
+                        InviteRow.login == login.lower(), InviteRow.accepted_at.is_(None)
+                    )
+                )
+            ]
+
+    def workspace_admin(caller=Depends(identity)):
+        if caller.get("role", "admin") != "admin":
+            raise HTTPException(403, "Only workspace admins can manage invitations")
+        return caller
+
+    @router.get("/invites")
+    def list_invites(caller=Depends(identity)):
+        with database.session() as session:
+            rows = session.scalars(
+                select(InviteRow)
+                .where(
+                    InviteRow.workspace_id == caller["workspace_id"],
+                    InviteRow.accepted_at.is_(None),
+                )
+                .order_by(InviteRow.created_at.desc())
+            )
+            return {"items": [invite_view(r) for r in rows]}
+
+    @router.post("/invites", status_code=201)
+    def create_invite(payload: CreateInvite, caller=Depends(workspace_admin)):
+        login = payload.login.lower()
+        if login in {m.lower() for m in members(database, settings, caller["workspace_id"])}:
+            raise HTTPException(409, f"@{login} is already a member of this workspace")
+        with database.session() as session:
+            repository = session.scalar(
+                select(GitHubRepositoryRow).where(
+                    GitHubRepositoryRow.workspace_id == caller["workspace_id"]
+                )
+            )
+            row = InviteRow(
+                id=str(uuid4()),
+                workspace_id=caller["workspace_id"],
+                login=login,
+                role=payload.role,
+                repository=repository.payload["full_name"] if repository else None,
+                invited_by=caller["reviewer_id"],
+                created_at=datetime.now(UTC),
+            )
+            session.add(row)
+            try:
+                session.commit()
+            except IntegrityError as exc:
+                raise HTTPException(409, f"@{login} already has a pending invitation") from exc
+            return invite_view(row)
+
+    @router.delete("/invites/{invite_id}")
+    def revoke_invite(invite_id: str, caller=Depends(workspace_admin)):
+        with database.session() as session:
+            row = session.get(InviteRow, invite_id)
+            if row is None or row.workspace_id != caller["workspace_id"] or row.accepted_at:
+                raise HTTPException(404, "Pending invitation not found")
+            session.delete(row)
+            session.commit()
+        return {"revoked": True}
+
+    @router.post("/invites/{invite_id}/accept", status_code=201)
+    async def accept_invite(invite_id: str, request: Request):
+        """The invited GitHub user joins the workspace and receives their own token."""
+        me = current(request)
+        with database.session() as session:
+            row = session.get(InviteRow, invite_id)
+            if row is None or row.login != me["login"].lower() or row.accepted_at:
+                raise HTTPException(404, "Invitation not found for this GitHub account")
+            workspace_id, role, repository = row.workspace_id, row.role, row.repository
+        if repository:
+            # Confirms the invitee can at least read the workspace's repository on GitHub.
+            await GitHubClient(me["github_token"]).get("/repos/" + repository)
+        with database.session() as session:
+            if session.scalar(
+                select(WorkspaceTokenRow).where(
+                    WorkspaceTokenRow.workspace_id == workspace_id,
+                    WorkspaceTokenRow.reviewer_id == me["login"],
+                )
+            ):
+                raise HTTPException(409, "You already belong to this workspace; sign in")
+            token = new_token(session, workspace_id, me["login"], role, repository or workspace_id)
+            session.get(InviteRow, invite_id).accepted_at = datetime.now(UTC)
+            session.commit()
+        return {
+            "token": token,
+            "workspace_id": workspace_id,
+            "repository": repository or workspace_id,
+            "role": role,
+            "regenerated": False,
+        }
 
     async def writable(github_token, full_name):
         repo = await GitHubClient(github_token).get("/repos/" + full_name)
@@ -268,11 +397,12 @@ def build_accounts_router(database, settings):
         try:
             me = current(request)
         except HTTPException:
-            return {"login": None, "workspaces": [], "can_regenerate": False}
+            return {"login": None, "workspaces": [], "can_regenerate": False, "invites": []}
         return {
             "login": me["login"],
             "workspaces": owned(me["login"]),
             "can_regenerate": me["can_regenerate"],
+            "invites": pending_for(me["login"]),
         }
 
     @router.delete("/session")
