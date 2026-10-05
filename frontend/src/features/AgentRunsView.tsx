@@ -211,12 +211,32 @@ export function AgentRunsView({
   }
   const needsEdits = (run: AgentRun) =>
     run.allow_edits || run.provider === "antigravity";
-  const command = selected
-    ? `python -m supportpilot.cli_bridge run ${selected.id} --repository /absolute/path/to/repo${needsEdits(selected) ? " --allow-edits" : ""}`
-    : "";
   const watchCommand =
     "python -m supportpilot.cli_bridge watch --repository /absolute/path/to/repo --allow-edits --push";
   const online = runners.filter((runner) => runner.online);
+  // Mirrors the watch loop's skip rules so the UI explains why a run is not starting.
+  const blockers = (run: AgentRun, runner: AgentRunner) => {
+    const reasons = [];
+    const repo = run.repository_full_name?.toLowerCase();
+    if (repo && runner.repository_full_name?.toLowerCase() !== repo)
+      reasons.push(
+        `serves ${runner.repository_full_name || "an unlinked checkout"}, not ${run.repository_full_name}`,
+      );
+    if (!runner.providers.includes(run.provider))
+      reasons.push(`does not have the ${run.provider} CLI installed`);
+    if (needsEdits(run) && !runner.allow_edits)
+      reasons.push("is read-only, but this run needs --allow-edits");
+    return reasons;
+  };
+  const setupCommand = (run: AgentRun) =>
+    [
+      run.repository_full_name
+        ? `git clone https://github.com/${run.repository_full_name}.git && cd ${run.repository_full_name.split("/")[1]}`
+        : "cd /absolute/path/to/your/repo",
+      `export SUPPORTPILOT_API_URL=${window.location.origin}`,
+      'printf "Workspace token: "; read -rs SUPPORTPILOT_WORKSPACE_TOKEN; echo; export SUPPORTPILOT_WORKSPACE_TOKEN',
+      `python -m supportpilot.cli_bridge watch --repository "$PWD"${needsEdits(run) ? " --allow-edits" : ""}`,
+    ].join("\n");
   const query = search.trim().toLowerCase();
   const visible = runs.filter(
     (run) =>
@@ -522,50 +542,64 @@ export function AgentRunsView({
                     {elapsed(selected.started_at, selected.completed_at)}
                   </p>
                 )}
-                {selected.status === "queued" && !!online.length && (
-                  <p className="muted small">
-                    Waiting for a runner to pick this up…
-                  </p>
-                )}
-                {selected.status === "queued" && !online.length && (
-                  <div className="engineering-callout">
-                    <strong>Start this run locally</strong>
-                    <p>
-                      Set SUPPORTPILOT_API_URL and SUPPORTPILOT_WORKSPACE_TOKEN
-                      in your shell. Keep your token out of commands and
-                      screenshots.
-                    </p>
-                    {selected.provider !== "custom" && (
-                      <div className="engineering-command">
-                        <code>{command}</code>
-                        <Button
-                          variant="ghost"
-                          aria-label="Copy runner command"
-                          onClick={() => copy(command, "run")}
-                        >
-                          {copied === "run" ? (
-                            <Check size={15} />
-                          ) : (
-                            <Copy size={15} />
-                          )}
-                        </Button>
+                {selected.status === "queued" &&
+                  selected.provider !== "custom" &&
+                  (() => {
+                    const able = online.filter(
+                      (runner) => !blockers(selected, runner).length,
+                    );
+                    if (able.length)
+                      return (
+                        <p className="muted small">
+                          Waiting for {able[0].runner_id} to pick this up…
+                        </p>
+                      );
+                    return (
+                      <div className="engineering-callout">
+                        <strong>
+                          {online.length
+                            ? "No online runner can take this run"
+                            : "No runner is online for this workspace"}
+                        </strong>
+                        {online.map((runner) => (
+                          <p key={runner.runner_id}>
+                            {runner.runner_id}{" "}
+                            {blockers(selected, runner).join("; ")}.
+                          </p>
+                        ))}
+                        <p>
+                          Start a runner in a checkout of{" "}
+                          {selected.repository_full_name || "your repository"}{" "}
+                          with this workspace's token. The token prompt is
+                          hidden, so it stays out of your history and screen.
+                        </p>
+                        <div className="engineering-command">
+                          <code className="multiline">
+                            {setupCommand(selected)}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            aria-label="Copy runner setup"
+                            onClick={() => copy(setupCommand(selected), "run")}
+                          >
+                            {copied === "run" ? (
+                              <Check size={15} />
+                            ) : (
+                              <Copy size={15} />
+                            )}
+                          </Button>
+                        </div>
                       </div>
-                    )}
-                    {selected.provider === "antigravity" && (
-                      <p className="muted small">
-                        Antigravity requires a dedicated clean worktree and the
-                        explicit --allow-edits option.
-                      </p>
-                    )}
-                    {selected.provider === "custom" && (
-                      <p className="muted small">
-                        For custom tools, claim this run and submit a result
-                        through the authenticated API. See docs/AGENT_BRIDGE.md
-                        for the external report workflow.
-                      </p>
-                    )}
-                  </div>
-                )}
+                    );
+                  })()}
+                {selected.status === "queued" &&
+                  selected.provider === "custom" && (
+                    <p className="muted small">
+                      For custom tools, claim this run and submit a result
+                      through the authenticated API. See docs/AGENT_BRIDGE.md
+                      for the external report workflow.
+                    </p>
+                  )}
                 {!!selected.log?.length && (
                   <>
                     <h3 className="engineering-subtitle">

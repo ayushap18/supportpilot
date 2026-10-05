@@ -35,20 +35,35 @@ test("engineering workspace displays configuration, queues local work, and prese
   await page.getByRole("button", { name: "Queue task", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(
-    page.getByText("Start this run locally", { exact: true }),
+    page.getByText("No runner is online for this workspace"),
   ).toBeVisible();
   await expect(page.getByText("No runner online")).toBeVisible();
   await expect(
     page
       .locator(".engineering-command")
-      .filter({ hasText: "cli_bridge watch" }),
-  ).toContainText("--allow-edits --push");
+      .filter({ hasText: "--push" }),
+  ).toContainText("cli_bridge watch --repository");
   await expect(
-    page.locator(".engineering-command").filter({ hasText: "cli_bridge run" }),
-  ).toBeVisible();
+    page.locator(".engineering-command").filter({ hasText: "read -rs" }),
+  ).toContainText("cli_bridge watch");
   for (const command of await page.locator(".engineering-command").all())
     await expect(command).not.toContainText(TOKEN);
   await expect(page.getByText("Cost: unknown", { exact: true })).toBeVisible();
+  // An online runner that cannot take the run is named with the reason.
+  await page.request.post("/api/agents/runners/heartbeat", {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+    data: {
+      runner_id: "other-box",
+      providers: ["claude_code"],
+      allow_edits: false,
+    },
+  });
+  await expect(
+    page.getByText("No online runner can take this run"),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/other-box does not have the codex CLI installed/),
+  ).toBeVisible();
   // A runner heartbeat flips the panel through polling, without a manual refresh.
   await page.request.post("/api/agents/runners/heartbeat", {
     headers: { Authorization: `Bearer ${TOKEN}` },
@@ -56,7 +71,7 @@ test("engineering workspace displays configuration, queues local work, and prese
   });
   await expect(page.getByText("Local runner online")).toBeVisible();
   await expect(
-    page.getByText("Waiting for a runner to pick this up…"),
+    page.getByText("Waiting for ci-laptop to pick this up…"),
   ).toBeVisible();
   await page.screenshot({
     path: "../docs/screenshots/agent-runs.png",
