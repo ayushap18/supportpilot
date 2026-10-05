@@ -18,6 +18,7 @@ from sqlalchemy import delete, select
 from supportpilot.github import build_github_router
 from supportpilot.github_storage import GitHubConnectionRow, GitHubIssueRow, GitHubOAuthRow
 from supportpilot.knowledge_storage import KnowledgeDocumentRow
+from supportpilot.mission import build_mission_router
 from supportpilot.provider import Provider
 from supportpilot.retrieval import ChunkRow, Retrieval
 from supportpilot.storage import Base, Database, TicketRow
@@ -136,7 +137,7 @@ def github(settings, monkeypatch, request):
                 {
                     "type": "blob",
                     "path": "docs/guide.md",
-                    "sha": "doc-sha",
+                    "sha": state.get("doc_sha", "doc-sha"),
                     "size": len(state["doc"]),
                 }
             ]
@@ -155,6 +156,45 @@ def github(settings, monkeypatch, request):
                     "encoding": "base64",
                     "size": len(state["doc"]),
                     "content": base64.b64encode(state["doc"].encode()).decode(),
+                },
+            )
+        if path.endswith("/pulls/5/reviews"):
+            return httpx.Response(
+                200,
+                json=[
+                    {"user": {"login": "rev"}, "state": "CHANGES_REQUESTED"},
+                    {"user": {"login": "rev"}, "state": "APPROVED"},
+                    {"user": {"login": "bot"}, "state": "COMMENTED"},
+                ],
+            )
+        if path.endswith("/pulls/5"):
+            return httpx.Response(
+                200,
+                json={
+                    "number": 5,
+                    "html_url": "https://github.com/team/project/pull/5",
+                    "state": "open",
+                    "merged": False,
+                    "draft": True,
+                    "changed_files": 1,
+                    "additions": 3,
+                    "deletions": 0,
+                    "head": {"sha": "headsha"},
+                },
+            )
+        if path.endswith("/actions/runs"):
+            assert request.url.params["head_sha"] == "headsha"
+            return httpx.Response(
+                200,
+                json={
+                    "workflow_runs": [
+                        {
+                            "name": "CI",
+                            "status": "completed",
+                            "conclusion": "failure",
+                            "html_url": "https://github.com/team/project/actions/runs/1",
+                        }
+                    ]
                 },
             )
         if path.endswith("/pulls") and request.method == "POST":
@@ -198,6 +238,7 @@ def github(settings, monkeypatch, request):
 
     app = FastAPI()
     app.include_router(build_github_router(database, retrieval, identity, settings))
+    app.include_router(build_mission_router(database, identity))
     with TestClient(app) as client:
         yield client, database, calls, state, retrieval
     with database.engine.begin() as connection:
@@ -550,3 +591,87 @@ def test_agent_run_opens_draft_pull_request_explicitly(github):
     assert "ghp_" not in pull["body"]
     assert opened.json()["artifacts"][-1]["url"] == "https://github.com/team/project/pull/5"
     assert client.post(path, headers=admin()).status_code == 409  # Only once per run.
+
+
+def test_pr_ci_panel_live_inbox_and_knowledge_freshness(github, settings):
+    import hashlib
+    import hmac
+
+    from supportpilot.agent_storage import AgentRunRow
+
+    client, database, _, state, _ = github
+    connect(github)
+    repo_id = select_repo(github)
+    base = "/api/github/repositories/" + repo_id
+    client.post(base + "/sync", headers=admin())
+    assert client.post(base + "/import-docs", headers=admin()).json()["imported"]
+    fresh = client.get("/api/mission", headers=admin()).json()["knowledge"]
+    assert [(d["title"], d["status"]) for d in fresh] == [("docs/guide.md", "current")]
+    state["doc_sha"] = "new-sha"
+    client.post(base + "/sync", headers=admin())  # The record of what was indexed survives.
+    changed = client.get("/api/mission", headers=admin()).json()["knowledge"][0]
+    assert changed["status"] == "changed_upstream" and changed["indexed_at"]
+
+    run_id = str(uuid4())
+    with database.session() as session:
+        session.add(
+            AgentRunRow(
+                id=run_id,
+                workspace_id=WORKSPACE,
+                status="completed",
+                payload={
+                    "id": run_id,
+                    "status": "completed",
+                    "provider": "codex",
+                    "task": "Fix it",
+                    "created_at": "2026-10-05T00:00:00+00:00",
+                    "completed_at": "2026-10-05T00:05:00+00:00",
+                    "usage": {},
+                    "repository_full_name": "team/project",
+                    "artifacts": [
+                        {"kind": "pull_request", "url": "https://github.com/team/project/pull/5"}
+                    ],
+                },
+            )
+        )
+        session.commit()
+    panel = client.get(f"/api/github/agent-runs/{run_id}/pull-request", headers=admin()).json()
+    assert panel["state"] == "open" and panel["draft"] and panel["changed_files"] == 1
+    assert panel["reviews"] == [{"login": "rev", "state": "APPROVED"}]  # Latest verdict wins.
+    assert panel["checks"][0]["conclusion"] == "failure"
+    other = {"Authorization": "Bearer other"}
+    assert (
+        client.get(f"/api/github/agent-runs/{run_id}/pull-request", headers=other).status_code
+        == 404
+    )
+
+    settings.github_webhook_secret = SecretStr("s")
+
+    def send(event, payload):
+        body = json.dumps({**payload, "repository": REPO}).encode()
+        signature = "sha256=" + hmac.new(b"s", body, hashlib.sha256).hexdigest()
+        client.post(
+            "/api/github/webhook",
+            content=body,
+            headers={"x-github-event": event, "x-hub-signature-256": signature},
+        )
+
+    send(
+        "pull_request",
+        {"action": "closed", "pull_request": {"number": 5, "title": "Fix", "merged": True}},
+    )
+    send(
+        "workflow_run",
+        {
+            "action": "completed",
+            "workflow_run": {"name": "CI", "conclusion": "failure", "head_branch": "main"},
+        },
+    )
+    send(
+        "workflow_run",
+        {"action": "completed", "workflow_run": {"name": "CI", "conclusion": "success"}},
+    )
+    send("push", {"ref": "refs/heads/main", "commits": [{}, {}], "pusher": {"name": "jane"}})
+    inbox = client.get("/api/mission", headers=admin()).json()["inbox"]
+    titles = {item["title"] for item in inbox}
+    assert titles == {"PR #5 merged", "Check failed: CI", "Push to main"}

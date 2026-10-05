@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import {
   ArrowUpRight,
   ChevronsUpDown,
+  Radar,
   LayoutDashboard,
   Settings2,
   RefreshCw,
@@ -84,6 +85,7 @@ import { AgentRunsView } from "./features/AgentRunsView";
 import { KnowledgeView } from "./features/KnowledgeView";
 import { AuthPages, usePage } from "./features/AuthPages";
 import { TeamInvites } from "./features/TeamInvites";
+import { MissionControl } from "./features/MissionControl";
 import { TicketManagement, TicketNotes } from "./features/TicketManagement";
 import { StateBadge, SectionHeading } from "./features/shared";
 import type { Operations, QueueTicket } from "./types";
@@ -115,6 +117,7 @@ function formatLatency(milliseconds: number) {
 }
 
 type View =
+  | "mission"
   | "overview"
   | "repositories"
   | "agents"
@@ -152,6 +155,14 @@ const NAV = [
     label: "Knowledge",
     icon: BookOpen,
     description: "Manage the source material behind your team's answers.",
+  },
+  {
+    id: "mission",
+    group: "Engineering",
+    label: "Mission control",
+    icon: Radar,
+    description:
+      "Agent pipeline, work queue, review desk, live GitHub activity, and knowledge freshness.",
   },
   {
     id: "repositories",
@@ -218,6 +229,7 @@ export default function App() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [view, setView] = useState<View>("overview");
+  const [focusRun, setFocusRun] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [githubLogin, setGithubLogin] = useState(false);
   const [authPage, goAuth] = usePage();
@@ -942,12 +954,26 @@ export default function App() {
                 onError={setError}
               />
             </div>
+          ) : view === "mission" && operations ? (
+            <div className="operational-content">
+              <MissionControl
+                api={api}
+                admin={operations.role === "admin"}
+                onError={setError}
+                onOpenRun={(id) => {
+                  setFocusRun(id);
+                  navigate("agents");
+                }}
+                onOpenTicket={openTicketId}
+              />
+            </div>
           ) : view === "agents" && operations ? (
             <div className="operational-content">
               <AgentRunsView
                 api={api}
                 admin={operations.role === "admin"}
                 onError={setError}
+                focusRun={focusRun}
               />
             </div>
           ) : view === "knowledge" && operations ? (

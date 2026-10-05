@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, update
 
 from supportpilot.agent_storage import AgentRunnerRow, AgentRunRow
+from supportpilot.knowledge_storage import KnowledgeDocumentRow
 from supportpilot.notifications import notify
 from supportpilot.redaction import redact
 from supportpilot.storage import TicketRow
@@ -64,6 +65,17 @@ class CreateRun(BaseModel):
     )
     # Requests an isolated-worktree edit run; a runner only honors it if started with edits.
     allow_edits: bool = False
+    # Context pack: knowledge documents snapshotted into the run for traceability.
+    knowledge_ids: list[str] = Field(default_factory=list, max_length=5)
+
+
+class ReviewRun(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    decision: Literal["accepted", "changes_requested"]
+    note: str = Field(default="", max_length=2000)
+    tests_before: str = Field(default="", max_length=2000)
+    tests_after: str = Field(default="", max_length=2000)
+    customer_confirmed: bool = False
 
 
 class ClaimRun(BaseModel):
@@ -191,6 +203,19 @@ def build_agent_router(database, identity, settings):
             "log": [],
         }
         with database.session() as session:
+            docs = [session.get(KnowledgeDocumentRow, doc_id) for doc_id in body.knowledge_ids]
+            if any(d is None or d.workspace_id != caller["workspace_id"] for d in docs):
+                raise HTTPException(404, "Knowledge document not found")
+            payload["context_docs"] = [
+                {
+                    "id": d.id,
+                    "title": d.title,
+                    "source_path": d.source_path,
+                    "revision": d.revision,
+                    "excerpt": d.body[:3000],
+                }
+                for d in docs
+            ]
             if body.ticket_id:
                 ticket = session.get(TicketRow, body.ticket_id)
                 if not ticket or ticket.workspace_id != caller["workspace_id"]:
@@ -342,6 +367,30 @@ def build_agent_router(database, identity, settings):
             f"SupportPilot · {caller.get('label') or caller['workspace_id']}: "
             f"{payload['provider']} run {status}: {payload['task'].splitlines()[0][:120]}",
         )
+        return payload
+
+    @router.post("/runs/{run_id}/review")
+    def review_run(run_id: str, body: ReviewRun, caller=Depends(admin)):
+        """Fix verification: a person's verdict on a finished run, with test evidence."""
+        with database.session() as session:
+            row = get_row(session, run_id, caller)
+            if row.status != "completed":
+                raise HTTPException(409, "Only completed runs can be reviewed")
+            payload = {
+                **row.payload,
+                "review": {
+                    **body.model_dump(),
+                    "note": redact(body.note),
+                    "tests_before": redact(body.tests_before),
+                    "tests_after": redact(body.tests_after),
+                    "reviewer_id": caller["reviewer_id"],
+                    "reviewed_at": now(),
+                },
+            }
+            session.execute(
+                update(AgentRunRow).where(AgentRunRow.id == run_id).values(payload=payload)
+            )
+            session.commit()
         return payload
 
     @router.post("/runs/{run_id}/cancel")

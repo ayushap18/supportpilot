@@ -156,6 +156,82 @@ def build_github_router(database, retrieval, identity, settings):
         )
         return 1
 
+    def describe_event(event, data):
+        """(title, detail) for the live inbox, or None for events not worth showing."""
+        repo = (data.get("repository") or {}).get("full_name", "")
+        action = data.get("action", "")
+        if event == "push":
+            commits = len(data.get("commits") or [])
+            ref = str(data.get("ref", "")).removeprefix("refs/heads/")
+            who = (data.get("pusher") or {}).get("name", "someone")
+            return f"Push to {ref}", f"{repo} · {commits} commit(s) by {who}"
+        if event == "issues" and action in ("opened", "closed", "reopened", "labeled"):
+            issue = data.get("issue") or {}
+            return f"Issue #{issue.get('number')} {action}", redact(issue.get("title", ""))[:200]
+        if event == "pull_request" and action in (
+            "opened",
+            "closed",
+            "reopened",
+            "ready_for_review",
+        ):
+            pull = data.get("pull_request") or {}
+            state = "merged" if action == "closed" and pull.get("merged") else action
+            return f"PR #{pull.get('number')} {state}", redact(pull.get("title", ""))[:200]
+        if event == "workflow_run" and action == "completed":
+            run = data.get("workflow_run") or {}
+            if run.get("conclusion") not in ("success", "skipped", "neutral"):
+                return (
+                    f"Check failed: {run.get('name')}",
+                    f"{repo} · {run.get('head_branch')} · {run.get('conclusion')}",
+                )
+        return None
+
+    @router.get("/agent-runs/{run_id}/pull-request")
+    async def pull_request_status(run_id: str, caller=Depends(identity)):
+        """Live PR, review, and CI/deployment workflow status for a run's draft PR."""
+        with database.session() as session:
+            row = session.get(AgentRunRow, run_id)
+            if row is None or row.workspace_id != caller["workspace_id"]:
+                raise HTTPException(404, "Agent run not found")
+            run = row.payload
+        url = next(
+            (a.get("url") for a in run.get("artifacts") or [] if a.get("kind") == "pull_request"),
+            None,
+        )
+        repo = run.get("repository_full_name")
+        if not url or not repo:
+            raise HTTPException(404, "This run has no pull request")
+        number = url.rstrip("/").rsplit("/", 1)[-1]
+        github = client_for(caller)
+        base = f"/repos/{repo}/pulls/{number}"
+        pull, reviews = await asyncio.gather(github.get(base), github.get(base + "/reviews"))
+        workflows = await github.get(
+            f"/repos/{repo}/actions/runs", {"head_sha": pull["head"]["sha"], "per_page": 20}
+        )
+        latest = {}
+        for review in reviews:  # Reviews arrive oldest first; keep each reviewer's last verdict.
+            if review.get("state") != "COMMENTED":
+                latest[(review.get("user") or {}).get("login")] = review["state"]
+        return {
+            "number": pull["number"],
+            "html_url": pull["html_url"],
+            "state": "merged" if pull.get("merged") else pull["state"],
+            "draft": pull.get("draft", False),
+            "changed_files": pull.get("changed_files"),
+            "additions": pull.get("additions"),
+            "deletions": pull.get("deletions"),
+            "reviews": [{"login": k, "state": v} for k, v in latest.items()],
+            "checks": [
+                {
+                    "name": w.get("name"),
+                    "status": w.get("status"),
+                    "conclusion": w.get("conclusion"),
+                    "html_url": w.get("html_url"),
+                }
+                for w in workflows.get("workflow_runs", [])
+            ],
+        }
+
     @router.post("/webhook")
     async def webhook(request: Request):
         """GitHub webhook: `support` issues become tickets; pushes mark snapshots stale."""
@@ -176,7 +252,12 @@ def build_github_router(database, retrieval, identity, settings):
             rows = session.scalars(
                 select(GitHubRepositoryRow).where(GitHubRepositoryRow.github_id == github_id)
             ).all()
+            from supportpilot.operations import record_activity  # avoids an import cycle
+
+            summary = describe_event(event, data)
             for row in rows:
+                if summary:
+                    record_activity(session, row.workspace_id, "", "github", *summary)
                 if event == "issues" and data.get("action") in ("opened", "labeled", "reopened"):
                     imported += import_issue(session, row.workspace_id, row.id, data["issue"])
                 elif event == "push":
@@ -535,6 +616,7 @@ def build_github_router(database, retrieval, identity, settings):
         }
         with database.session() as session:
             row = get_repo(session, repository_id, caller)
+            snapshot["indexed"] = row.snapshot.get("indexed", {})  # Survives re-sync.
             snapshot["imported_tickets"] = sum(
                 import_issue(session, caller["workspace_id"], row.id, issue) for issue in issues
             )
@@ -649,6 +731,20 @@ def build_github_router(database, retrieval, identity, settings):
                 errors.append(
                     {"path": path, "reason": "Import failed; previous document preserved"}
                 )
+        if imported:
+            # Remember which blob each document was indexed from, for knowledge freshness.
+            shas = {item["path"]: item["sha"] for item in snapshot.get("docs", [])}
+            with database.session() as session:
+                row = get_repo(session, repository_id, caller)
+                indexed = dict(row.snapshot.get("indexed", {}))
+                for item in imported:
+                    indexed[item["path"]] = {
+                        "sha": shas.get(item["path"]),
+                        "document_id": item["document_id"],
+                        "indexed_at": datetime.now(UTC).isoformat(),
+                    }
+                row.snapshot = {**row.snapshot, "indexed": indexed}
+                session.commit()
         return {"imported": imported, "skipped": skipped, "errors": errors}
 
     @router.post("/repositories/{repository_id}/issues")

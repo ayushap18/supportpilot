@@ -15,6 +15,7 @@ from supportpilot.agent_runs import build_agent_router
 from supportpilot.config import Settings
 from supportpilot.github import build_github_router
 from supportpilot.knowledge import build_knowledge_router
+from supportpilot.mission import build_mission_router
 from supportpilot.notifications import notify
 from supportpilot.operations import build_operations_router
 from supportpilot.provider import Provider
@@ -351,6 +352,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(build_accounts_router(database, settings, identity))
     app.include_router(build_github_router(database, retrieval, identity, settings))
     app.include_router(build_agent_router(database, identity, settings))
+    app.include_router(build_mission_router(database, identity))
     app.include_router(build_operations_router(database, identity, settings))
     app.include_router(build_knowledge_router(database, retrieval, identity, settings))
 

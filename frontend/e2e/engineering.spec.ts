@@ -312,3 +312,57 @@ test("reported agent results expose usage and reviewable GitHub artifacts", asyn
     "human review remains required",
   );
 });
+
+test("mission control: pipeline, review desk with fix verification, and run timeline", async ({
+  page,
+}) => {
+  const auth = { Authorization: `Bearer ${TOKEN}` };
+  const created = await page.request.post("/api/agents/runs", {
+    headers: auth,
+    data: { provider: "codex", task: `Mission check ${Date.now()}` },
+  });
+  const run = await created.json();
+  const { lease } = await (
+    await page.request.post(`/api/agents/runs/${run.id}/claim`, {
+      headers: auth,
+      data: { runner_id: "e2e" },
+    })
+  ).json();
+  await page.request.post(`/api/agents/runs/${run.id}/complete`, {
+    headers: auth,
+    data: {
+      lease,
+      result: "Found the bug in retry.py",
+      exit_code: 0,
+      usage: { input_tokens: 10, output_tokens: 3 },
+    },
+  });
+
+  await connect(page);
+  await page
+    .getByRole("button", { name: "Mission control", exact: true })
+    .click();
+  const pipeline = page.getByRole("region", { name: "Agent pipeline" });
+  await expect(pipeline).toContainText("No agent is running");
+  await expect(
+    pipeline.locator(".stage-awaiting_review strong"),
+  ).not.toHaveText("0");
+  const card = page.locator(".mission-review").filter({ hasText: run.task });
+  await card.getByRole("button", { name: "Review", exact: true }).click();
+  await card
+    .getByPlaceholder("e.g. test_retry FAILED")
+    .fill("test_retry FAILED");
+  await card.getByPlaceholder("e.g. 42 passed").fill("test_retry passed");
+  await card.getByLabel("Customer confirmed the fix").check();
+  await card.getByRole("button", { name: "Accept" }).click();
+  await expect(card).toHaveCount(0);
+  await expect(pipeline.locator(".stage-accepted strong")).not.toHaveText("0");
+
+  await page.getByRole("button", { name: "Agent runs", exact: true }).click();
+  await page.getByLabel("Search runs").fill(run.task);
+  await page.getByRole("button", { name: new RegExp(run.task) }).click();
+  const timeline = page.getByRole("list", { name: "Run timeline" });
+  await expect(timeline).toContainText("Reviewed (accepted)");
+  await expect(page.getByText("customer confirmed")).toBeVisible();
+  await expect(page.getByText("Tests before: test_retry FAILED")).toBeVisible();
+});

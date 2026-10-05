@@ -34,14 +34,52 @@ import type {
   Repository,
 } from "./engineering-types";
 import "./engineering.css";
+import { PullRequestPanel } from "./MissionControl";
+const TEMPLATES = [
+  {
+    id: "investigate",
+    label: "Investigate this issue",
+    text: (ticket: string) =>
+      `Investigate the reported problem${ticket ? ` in the linked ticket ("${ticket}")` : ""}. Find the root cause in this repository, cite the files and lines involved, and propose a focused fix. Do not change unrelated code.`,
+  },
+  {
+    id: "review",
+    label: "Review a change",
+    text: () =>
+      "Review the most recent change in this repository for correctness bugs, missing edge cases, and security issues. Report each finding with file, line, and a concrete failure scenario. Do not modify files.",
+  },
+  {
+    id: "test-plan",
+    label: "Generate a test plan",
+    text: (ticket: string) =>
+      `Write a test plan${ticket ? ` for the linked ticket ("${ticket}")` : ""}: the behaviours to verify, the existing tests that cover them, and the missing tests to add, with file paths.`,
+  },
+];
+
+function elapsed(from?: string | null, to?: string | null) {
+  if (!from) return "";
+  const seconds = Math.max(
+    0,
+    ((to ? new Date(to) : new Date()).getTime() - new Date(from).getTime()) /
+      1000,
+  );
+  return seconds < 90
+    ? Math.round(seconds) + "s"
+    : seconds < 5400
+      ? Math.round(seconds / 60) + "m"
+      : (seconds / 3600).toFixed(1) + "h";
+}
+
 export function AgentRunsView({
   api,
   onError,
   admin,
+  focusRun = "",
 }: {
   api: Api;
   admin: boolean;
   onError: (message: string) => void;
+  focusRun?: string;
 }) {
   const [providers, setProviders] = useState<AgentProvider[]>([]),
     [runs, setRuns] = useState<AgentRun[]>([]),
@@ -63,7 +101,12 @@ export function AgentRunsView({
       model: "",
       ticket_id: "",
       allow_edits: false,
-    });
+      knowledge_ids: [] as string[],
+    }),
+    [documents, setDocuments] = useState<{ id: string; title: string }[]>([]),
+    [search, setSearch] = useState(""),
+    [statusFilter, setStatusFilter] = useState("all"),
+    [providerFilter, setProviderFilter] = useState("all");
   async function load() {
     const data = await api<{ items: AgentRun[]; usage: AgentUsage }>(
       "/agents/runs",
@@ -74,7 +117,7 @@ export function AgentRunsView({
     setSelected((current) =>
       current
         ? data.items.find((run) => run.id === current.id) || current
-        : null,
+        : data.items.find((run) => run.id === focusRun) || null,
     );
   }
   useEffect(() => {
@@ -89,6 +132,9 @@ export function AgentRunsView({
       api<{ items: Repository[] }>("/github/repositories").then((data) =>
         setRepositories(data.items),
       ),
+      api<{ items: { id: string; title: string }[] }>(
+        "/knowledge/documents",
+      ).then((data) => setDocuments(data.items)),
     ])
       .catch((e) => onError(e.message))
       .finally(() => setLoading(false));
@@ -156,7 +202,7 @@ export function AgentRunsView({
       await load();
       setSelected(run);
       setOpen(false);
-      setForm({ ...form, task: "" });
+      setForm({ ...form, task: "", knowledge_ids: [] });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -171,6 +217,18 @@ export function AgentRunsView({
   const watchCommand =
     "python -m supportpilot.cli_bridge watch --repository /absolute/path/to/repo --allow-edits --push";
   const online = runners.filter((runner) => runner.online);
+  const query = search.trim().toLowerCase();
+  const visible = runs.filter(
+    (run) =>
+      (statusFilter === "all" ||
+        (statusFilter === "needs_review"
+          ? run.status === "completed" && !run.review
+          : run.status === statusFilter)) &&
+      (providerFilter === "all" || run.provider === providerFilter) &&
+      (!query ||
+        run.task.toLowerCase().includes(query) ||
+        (run.repository_full_name || "").toLowerCase().includes(query)),
+  );
   const provider = providers.find((item) => item.id === form.provider);
   const pushedBranch = (run: AgentRun) =>
     (run.artifacts || []).some(
@@ -322,33 +380,85 @@ export function AgentRunsView({
             {loading ? (
               <p className="muted">Loading agent runs…</p>
             ) : runs.length ? (
-              <div className="engineering-run-list">
-                {runs.map((run) => (
-                  <button
-                    className={selected?.id === run.id ? "selected" : ""}
-                    key={run.id}
-                    onClick={() => {
-                      setSelected(run);
-                      setCopied("");
-                    }}
+              <>
+                <div className="run-filters">
+                  <Input
+                    aria-label="Search runs"
+                    placeholder="Search task or repository…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                  <NativeSelect
+                    aria-label="Filter by status"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
                   >
-                    <div>
-                      <strong>
-                        {providers.find((item) => item.id === run.provider)
-                          ?.name || run.provider}
-                      </strong>
-                      <StateBadge value={run.status} />
-                    </div>
-                    <p>{run.task}</p>
-                    <small>
-                      {dateTime(run.created_at)}
-                      {run.repository_full_name
-                        ? ` · ${run.repository_full_name}`
-                        : ""}
-                    </small>
-                  </button>
-                ))}
-              </div>
+                    {[
+                      ["all", "All statuses"],
+                      ["queued", "Queued"],
+                      ["running", "Running"],
+                      ["needs_review", "Needs review"],
+                      ["completed", "Completed"],
+                      ["failed", "Failed"],
+                      ["cancelled", "Cancelled"],
+                    ].map(([value, label]) => (
+                      <NativeSelectOption key={value} value={value}>
+                        {label}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                  <NativeSelect
+                    aria-label="Filter by agent"
+                    value={providerFilter}
+                    onChange={(e) => setProviderFilter(e.target.value)}
+                  >
+                    <NativeSelectOption value="all">
+                      All agents
+                    </NativeSelectOption>
+                    {providers.map((item) => (
+                      <NativeSelectOption key={item.id} value={item.id}>
+                        {item.name}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </div>
+                <div className="engineering-run-list">
+                  {!visible.length && (
+                    <p className="muted small">No runs match these filters.</p>
+                  )}
+                  {visible.map((run) => (
+                    <button
+                      className={selected?.id === run.id ? "selected" : ""}
+                      key={run.id}
+                      onClick={() => {
+                        setSelected(run);
+                        setCopied("");
+                      }}
+                    >
+                      <div>
+                        <strong>
+                          {providers.find((item) => item.id === run.provider)
+                            ?.name || run.provider}
+                        </strong>
+                        <StateBadge value={run.status} />
+                      </div>
+                      <p>{run.task}</p>
+                      <small>
+                        {dateTime(run.created_at)}
+                        {run.repository_full_name
+                          ? ` · ${run.repository_full_name}`
+                          : ""}
+                        {run.started_at
+                          ? ` · ${elapsed(run.started_at, run.completed_at)}`
+                          : ""}
+                        {run.review
+                          ? ` · ${run.review.decision.replace("_", " ")}`
+                          : ""}
+                      </small>
+                    </button>
+                  ))}
+                </div>
+              </>
             ) : (
               <Empty title="Your first agent run">
                 Queue a task for Codex, Claude Code, Antigravity, or another
@@ -377,6 +487,39 @@ export function AgentRunsView({
                 {selected.ticket_id && (
                   <p className="muted small">
                     Linked ticket: {selected.ticket_id}
+                  </p>
+                )}
+                {!!selected.context_docs?.length && (
+                  <p className="muted small">
+                    Context pack:{" "}
+                    {selected.context_docs.map((doc) => doc.title).join(", ")}
+                  </p>
+                )}
+                <ol className="run-timeline" aria-label="Run timeline">
+                  {[
+                    ["Queued", selected.created_at],
+                    ["Started", selected.started_at],
+                    [
+                      selected.status === "failed" ? "Failed" : "Finished",
+                      selected.completed_at,
+                    ],
+                    [
+                      selected.review
+                        ? `Reviewed (${selected.review.decision.replace("_", " ")})`
+                        : "Human review",
+                      selected.review?.reviewed_at,
+                    ],
+                  ].map(([label, at]) => (
+                    <li key={label} className={at ? "done" : ""}>
+                      <span>{label}</span>
+                      <time>{at ? dateTime(at) : "—"}</time>
+                    </li>
+                  ))}
+                </ol>
+                {selected.started_at && (
+                  <p className="muted small">
+                    {selected.status === "running" ? "Running for " : "Took "}
+                    {elapsed(selected.started_at, selected.completed_at)}
                   </p>
                 )}
                 {selected.status === "queued" && !!online.length && (
@@ -512,6 +655,30 @@ export function AgentRunsView({
                       </p>
                     )
                   ))}
+                {hasPull(selected) && (
+                  <PullRequestPanel api={api} runId={selected.id} />
+                )}
+                {selected.review && (
+                  <div className="engineering-callout">
+                    <strong>
+                      {selected.review.decision === "accepted"
+                        ? "Accepted"
+                        : "Changes requested"}{" "}
+                      by {selected.review.reviewer_id}
+                      {selected.review.customer_confirmed
+                        ? " · customer confirmed"
+                        : ""}
+                    </strong>
+                    {(selected.review.tests_before ||
+                      selected.review.tests_after) && (
+                      <p>
+                        Tests before: {selected.review.tests_before || "—"} ·
+                        after: {selected.review.tests_after || "—"}
+                      </p>
+                    )}
+                    {selected.review.note && <p>{selected.review.note}</p>}
+                  </div>
+                )}
                 <div className="engineering-run-meta">
                   <span>
                     Input: {selected.usage?.input_tokens ?? "unknown"}
@@ -600,6 +767,33 @@ export function AgentRunsView({
               </NativeSelect>
             </label>
             <p className="muted small">{provider?.setup}</p>
+            <div
+              className="template-row"
+              role="group"
+              aria-label="Task templates"
+            >
+              {TEMPLATES.map((template) => (
+                <Button
+                  type="button"
+                  key={template.id}
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setForm({
+                      ...form,
+                      task: template.text(
+                        tickets.find((t) => t.id === form.ticket_id)?.subject ||
+                          "",
+                      ),
+                      allow_edits:
+                        template.id === "investigate" && form.allow_edits,
+                    })
+                  }
+                >
+                  {template.label}
+                </Button>
+              ))}
+            </div>
             <label>
               Task
               <Textarea
@@ -665,6 +859,32 @@ export function AgentRunsView({
                 </span>
               </label>
             </div>
+            {!!documents.length && (
+              <fieldset className="context-pack">
+                <legend>Context pack (up to 5 knowledge documents)</legend>
+                {documents.slice(0, 30).map((doc) => (
+                  <label className="checkbox-row" key={doc.id}>
+                    <input
+                      type="checkbox"
+                      checked={form.knowledge_ids.includes(doc.id)}
+                      disabled={
+                        !form.knowledge_ids.includes(doc.id) &&
+                        form.knowledge_ids.length >= 5
+                      }
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          knowledge_ids: e.target.checked
+                            ? [...form.knowledge_ids, doc.id]
+                            : form.knowledge_ids.filter((id) => id !== doc.id),
+                        })
+                      }
+                    />
+                    <span>{doc.title}</span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
             <label className="checkbox-row">
               <input
                 type="checkbox"

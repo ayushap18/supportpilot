@@ -43,7 +43,7 @@ For a deployed server, add a repository webhook:
 
 - Payload URL: `https://YOUR-SERVICE/api/github/webhook`, content type `application/json`.
 - Secret: the same value as `SUPPORTPILOT_GITHUB_WEBHOOK_SECRET`. Requests with a wrong signature are rejected, and the endpoint is disabled until the secret is set.
-- Events: **Issues** and **Pushes**. Newly opened, labelled, or reopened `support` issues become tickets immediately. A push marks the repository snapshot "new commits since last sync".
+- Events: **Issues**, **Pushes**, **Pull requests**, and **Workflow runs**. Newly opened, labelled, or reopened `support` issues become tickets immediately. A push marks the repository snapshot "new commits since last sync". Pushes, issue and PR changes, and failed workflow runs appear in **Mission control → Live activity** without a manual sync.
 
 Webhooks cannot reach `127.0.0.1`; locally, use sync.
 

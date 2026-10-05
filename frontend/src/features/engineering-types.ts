@@ -87,6 +87,18 @@ export type AgentRun = {
   artifacts?: (string | Record<string, unknown>)[];
   allow_edits?: boolean;
   log?: string[];
+  started_at?: string | null;
+  completed_at?: string | null;
+  context_docs?: { id: string; title: string; source_path: string }[];
+  review?: {
+    decision: "accepted" | "changes_requested";
+    note: string;
+    tests_before: string;
+    tests_after: string;
+    customer_confirmed: boolean;
+    reviewer_id: string;
+    reviewed_at: string;
+  };
   usage?: {
     input_tokens?: number | null;
     output_tokens?: number | null;

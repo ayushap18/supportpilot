@@ -43,6 +43,7 @@ Each family has four steps: `-bg` (tinted fill), `-border`, the solid color, and
 | `danger` | `#f87171` | Failure, rejected, destructive |
 | `violet` | `#a78bfa` | Identity, evidence, AI trace |
 | `info` | `#60a5fa` | Neutral metadata, links, queued |
+| `live` | `#22d3ee` | A genuinely running agent only (pulse, active pipeline stage) |
 
 shadcn/ui variables (`--background`, `--card`, `--primary`, `--border`, …) are aliases onto these tokens, so the primitives in `src/components/ui` follow the system automatically.
 

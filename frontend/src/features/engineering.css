@@ -543,3 +543,64 @@
   color: var(--n-9);
   font-size: 12px;
 }
+.run-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px 140px;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.run-timeline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 12px 0 4px;
+  padding: 0;
+  list-style: none;
+}
+.run-timeline li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-top: 2px solid var(--n-5);
+  color: var(--n-9);
+  font-size: 12px;
+}
+.run-timeline li.done {
+  border-top-color: var(--accent);
+  color: var(--n-11);
+}
+.run-timeline time {
+  color: var(--n-9);
+  font-size: 11px;
+}
+.template-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.context-pack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--n-5);
+  border-radius: 8px;
+}
+.context-pack legend {
+  padding: 0 4px;
+  color: var(--n-10);
+  font-size: 12px;
+}
+@media (max-width: 620px) {
+  .run-filters,
+  .run-timeline {
+    grid-template-columns: 1fr 1fr;
+  }
+  .run-filters input {
+    grid-column: 1 / -1;
+  }
+}
