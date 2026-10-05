@@ -61,6 +61,8 @@ import {
   ActivityList,
   WorkspaceView,
 } from "./features/OperationsViews";
+import { GitHubView } from "./features/GitHubView";
+import { AgentRunsView } from "./features/AgentRunsView";
 import { KnowledgeView } from "./features/KnowledgeView";
 import { TicketManagement, TicketNotes } from "./features/TicketManagement";
 import { StateBadge, SectionHeading } from "./features/shared";
@@ -94,6 +96,8 @@ function formatLatency(milliseconds: number) {
 
 type View =
   | "overview"
+  | "repositories"
+  | "agents"
   | "workspace"
   | "reviews"
   | "knowledge"
@@ -101,6 +105,20 @@ type View =
   | "settings"
   | "guide";
 const NAV = [
+  {
+    id: "repositories",
+    label: "Repositories",
+    icon: GitBranch,
+    description:
+      "Connect GitHub, inspect changes, and turn tickets into issues.",
+  },
+  {
+    id: "agents",
+    label: "Agent runs",
+    icon: Terminal,
+    description:
+      "Queue coding tasks and inspect results, artifacts, and reported usage.",
+  },
   {
     id: "overview",
     label: "Overview",
@@ -187,6 +205,8 @@ export default function App() {
   );
   function navigate(next: View) {
     setView(next);
+    setNotice("");
+    setError("");
     setNavigationOpen(false);
     setQueuePage(1);
     setQuery("");
@@ -298,6 +318,19 @@ export default function App() {
   }
 
   useEffect(() => {
+    const githubResult = new URLSearchParams(window.location.search).get(
+      "github",
+    );
+    if (githubResult === "connected")
+      setNotice(
+        "GitHub authorization returned. Reconnect your workspace and open Repositories to verify the connection.",
+      );
+    else if (githubResult === "authorization_failed")
+      setError(
+        "GitHub authorization did not complete. Reconnect your workspace to try again.",
+      );
+    if (githubResult)
+      window.history.replaceState(null, "", window.location.pathname);
     fetch("/api/config")
       .then((r) => {
         if (!r.ok) throw Error();
@@ -726,9 +759,10 @@ export default function App() {
             <div className="demo-note">
               <FlaskConical size={16} />
               <span>
-                <strong>A working demo, with synthetic data.</strong> Fixture
-                mode uses deterministic routing and lexical retrieval. No live
-                model calls.
+                <strong>Support investigations use fixture mode.</strong>{" "}
+                Deterministic responses and lexical retrieval. GitHub
+                connections and local coding agents use their separately
+                configured services.
               </span>
             </div>
           )}
@@ -882,6 +916,22 @@ export default function App() {
                 onTicket={selectTicket}
                 onQueue={(review) => navigate(review ? "reviews" : "workspace")}
                 onKnowledge={() => navigate("knowledge")}
+              />
+            </div>
+          ) : view === "repositories" && operations ? (
+            <div className="operational-content">
+              <GitHubView
+                api={api}
+                admin={operations.role === "admin"}
+                onError={setError}
+              />
+            </div>
+          ) : view === "agents" && operations ? (
+            <div className="operational-content">
+              <AgentRunsView
+                api={api}
+                admin={operations.role === "admin"}
+                onError={setError}
               />
             </div>
           ) : view === "knowledge" && operations ? (

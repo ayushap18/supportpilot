@@ -93,3 +93,11 @@ Docker is not running on the development machine used for the initial implementa
 Configure provider credentials, run budgeted live evaluations, and manually review grounded answers before making quality claims. Provision Render, verify the deployed commit and public smoke flows, and test database backup/restore. Establish an agreed retention/data-handling policy and suitable team identity onboarding before processing customer data. External help-desk intake, customer-message delivery, and live operational tools require separate adapters.
 
 Dashboard readiness labels are a checklist, not automated certification of these prerequisites. Keep evaluation and deployment issues open until the work has evidence; record a walkthrough and tester feedback after the pilot is usable.
+
+## Optional engineering integrations
+
+Follow [GitHub setup](GITHUB_SETUP.md) to configure the OAuth client, exact HTTPS callback, and stable encryption key as private server variables. These variables are optional; the UI reports unavailable configuration until provided. No GitHub credentials are taken from the developer machine automatically.
+
+The hosted application stores task records and encrypted GitHub credentials; the [agent bridge](AGENT_BRIDGE.md) runs on an operator's machine with its own CLI authentication. Do not install unrestricted coding CLIs into the web service to execute queued tasks.
+
+Agent runs expire under the configured startup retention policy. Runs linked to expired tickets are deleted with their captured ticket context, along with local GitHub issue mappings. Remote GitHub issues are unaffected. Repository snapshots and imported knowledge remain until integration disconnection or explicit knowledge management; disconnecting retains imported knowledge. Expired OAuth states are cleaned on startup. Retention does not stop an already-running external CLI process.

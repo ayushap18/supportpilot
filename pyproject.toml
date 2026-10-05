@@ -9,7 +9,7 @@ description = "Evidence-based support investigation and human review"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi", "pydantic-settings", "sqlalchemy", "psycopg[binary]",
-  "pgvector", "httpx", "uvicorn", "openai",
+  "pgvector", "httpx", "uvicorn", "openai", "cryptography",
 ]
 
 [project.optional-dependencies]

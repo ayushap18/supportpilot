@@ -49,3 +49,11 @@ Use the current GitHub Actions run and its artifacts as release evidence. A depl
 ## Evidence status
 
 This document defines gates; unchecked prose is not a claim that a gate passed. Record actual test results in the release summary and CI artifacts. Hosting, SSO, backups, live-provider quality, real external tool adapters, and customer feedback require environment-specific evidence and cannot be inferred from a successful local build.
+
+## Engineering integration gates
+
+- OAuth state/cookie binding, expiration, replay prevention, encrypted storage, and workspace/admin scope are verified with mocked GitHub responses.
+- Snapshot and import limits are visible; uncertain issue writes reconcile without blind recreation.
+- Agent claim/completion is atomic and scoped. Missing usage remains unknown, provider errors stay failed, and no automatic merge/issue-resolution claim is made.
+- Local bridge checks repository identity, passes task data through stdin, bounds output/time, and isolates authorized edits in a preserved worktree.
+- Real OAuth authorization, repository import, deliberate issue publication, and each installed CLI's live behavior require an operator test after credentials are configured.

@@ -10,7 +10,9 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
+from supportpilot.agent_runs import build_agent_router
 from supportpilot.config import Settings
+from supportpilot.github import build_github_router
 from supportpilot.knowledge import build_knowledge_router
 from supportpilot.operations import build_operations_router
 from supportpilot.provider import Provider
@@ -333,6 +335,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(409, "This draft revision has already been reviewed") from exc
             return review
 
+    app.include_router(build_github_router(database, retrieval, identity, settings))
+    app.include_router(build_agent_router(database, identity, settings))
     app.include_router(build_operations_router(database, identity, settings))
     app.include_router(build_knowledge_router(database, retrieval, identity, settings))
 

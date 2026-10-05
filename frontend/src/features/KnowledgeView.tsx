@@ -1,5 +1,12 @@
-import { useEffect, useState } from "react";
-import { Archive, BookOpen, FileText, Plus, Search } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Archive,
+  BookOpen,
+  FileText,
+  Plus,
+  Search,
+  Upload,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -36,6 +43,44 @@ export function KnowledgeView({
   onChange: () => Promise<void>;
   onError: (message: string) => void;
 }) {
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = useState("");
+  async function importFile(file: File | undefined) {
+    if (!file) return;
+    setUploadError("");
+    try {
+      if (!/\.(md|markdown|txt)$/i.test(file.name))
+        throw new Error(
+          "Choose a Markdown or plain-text file (.md, .markdown, .txt).",
+        );
+      if (file.size > 120000)
+        throw new Error(
+          "File is too large. Use up to 30,000 characters (120 KB).",
+        );
+      const body = new TextDecoder("utf-8", { fatal: true })
+        .decode(await file.arrayBuffer())
+        .trim();
+      if (body.includes("\u0000") || body.length < 20 || body.length > 30000)
+        throw new Error(
+          "Use UTF-8 text containing 20–30,000 characters, without binary content.",
+        );
+      const filename = file.name.replace(/[\\/]/g, "_").slice(0, 190);
+      const title = filename.replace(/\.[^.]+$/, "");
+      setEditing(null);
+      setForm({
+        title: title.length >= 3 ? title : "Document " + title,
+        body,
+        product_version: "any",
+        source_path: "upload/" + filename,
+      });
+      setModalError("");
+      setOpen(true);
+    } catch (error) {
+      setUploadError((error as Error).message);
+    } finally {
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  }
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]),
     [loading, setLoading] = useState(true),
     [query, setQuery] = useState(""),
@@ -134,22 +179,47 @@ export function KnowledgeView({
             detail="Versioned documentation used to ground every investigation"
             action={
               admin ? (
-                <Button
-                  onClick={() => {
-                    setEditing(null);
-                    setForm(blank);
-                    setModalError("");
-                    setOpen(true);
-                  }}
-                >
-                  <Plus size={16} />
-                  Add document
-                </Button>
+                <div className="heading-actions">
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    accept=".md,.markdown,.txt"
+                    aria-label="Upload knowledge file"
+                    hidden
+                    onChange={(event) =>
+                      void importFile(event.target.files?.[0])
+                    }
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() => fileInput.current?.click()}
+                    disabled={!!busy}
+                  >
+                    <Upload size={16} />
+                    Upload file
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setEditing(null);
+                      setForm(blank);
+                      setModalError("");
+                      setOpen(true);
+                    }}
+                  >
+                    <Plus size={16} />
+                    Add document
+                  </Button>
+                </div>
               ) : (
                 <StateBadge value="agent" />
               )
             }
           />
+          {uploadError && (
+            <p className="error-banner" role="alert">
+              {uploadError}
+            </p>
+          )}
           <form className="knowledge-search" onSubmit={search}>
             <div className="search-field">
               <Search size={16} />

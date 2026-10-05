@@ -23,6 +23,21 @@ SupportPilot is a standalone operational pilot for a small support team: manage 
 
 Approval records a decision inside SupportPilot. Ticket resolution is a separate operator action. Customer delivery and external help-desk intake are not connected. Follow the [user guide](docs/USER_GUIDE.md) or inspect the [real-use implementation plan](docs/REAL_USE_PLAN.md).
 
+## GitHub and coding-agent workspace
+
+The engineering workspace extends support tickets into repository work:
+
+- **Repositories:** authorize GitHub, browse accessible repositories, select up to 25, and synchronize bounded snapshots of commits, issues, contributors, activity, files, and documentation. Inspect commit patches and scan limits.
+- **Knowledge:** import README/`docs/` sources or preview and save uploaded UTF-8 Markdown/text files. Imports retain document revisions and search indexing; archive obsolete sources explicitly.
+- **Linked issues:** review a ticket and explicitly publish its subject/description to GitHub. Saved links and uncertain-write reconciliation prevent blind duplicate creation.
+- **Agent runs:** queue a ticket-linked task for Codex, Claude Code, Antigravity, or an external-report adapter. Execute named CLIs through the local bridge and inspect results, reported tokens/cost, and branch/patch artifacts.
+
+The server does not execute repository code. The bridge defaults to Codex read-only analysis; Codex edits and Antigravity require explicit `--allow-edits` and a dedicated worktree. Claude Code currently supports analysis only. A finished run does not automatically resolve a ticket or merge code. Provider account quotas and subscription billing are not available through run telemetry.
+
+[Repository dashboard preview](docs/screenshots/repositories.png) (mock GitHub fixture) · [Agent runs preview](docs/screenshots/agent-runs.png).
+
+GitHub OAuth is a repository connection for an existing workspace, not a replacement for workspace-token sign-in. Real GitHub authorization and CLI execution require your own credentials; tests use provider/API doubles and do not establish a live integration. Start with [GitHub setup](docs/GITHUB_SETUP.md), [the CLI bridge](docs/AGENT_BRIDGE.md), and [the engineering plan](docs/ENGINEERING_WORKSPACE_PLAN.md).
+
 ## Interface
 
 The frontend uses React, TypeScript, Tailwind CSS, and ten official shadcn/ui components built on Radix primitives. The dark theme combines charcoal panels, emerald actions, contextual metric cards, and an inspectable tool trace. Desktop and mobile views preserve the complete investigation and review flow.

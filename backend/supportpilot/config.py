@@ -4,7 +4,9 @@ import os
 from datetime import date
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
+from cryptography.fernet import Fernet
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -17,6 +19,10 @@ class Settings(BaseSettings):
     api_tokens_json: SecretStr = SecretStr("[]")
     mode: Literal["fixture", "live"] = "fixture"
     openai_api_key: SecretStr = SecretStr("")
+    github_client_id: str = ""
+    github_client_secret: SecretStr = SecretStr("")
+    github_redirect_uri: str = "http://127.0.0.1:8000/api/github/callback"
+    integration_encryption_key: SecretStr = SecretStr("")
     model: str = "gpt-4.1-mini"
     embedding_model: str = "text-embedding-3-small"
     data_dir: Path = ROOT / "data/relaydesk"
@@ -35,6 +41,28 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_settings(self):
+        if self.integration_encryption_key.get_secret_value():
+            try:
+                Fernet(self.integration_encryption_key.get_secret_value().encode())
+            except (ValueError, TypeError) as exc:
+                raise ValueError("Integration encryption key must be a valid Fernet key") from exc
+        callback = urlparse(self.github_redirect_uri)
+        if (
+            callback.scheme not in {"https", "http"}
+            or not callback.hostname
+            or callback.username
+            or callback.password
+            or callback.fragment
+            or callback.query
+            or callback.path != "/api/github/callback"
+            or (
+                callback.scheme == "http"
+                and callback.hostname not in {"localhost", "127.0.0.1", "::1"}
+            )
+        ):
+            raise ValueError(
+                "GitHub callback must use HTTPS (or local HTTP) at /api/github/callback"
+            )
         tokens = json.loads(self.api_tokens_json.get_secret_value())
         if not isinstance(tokens, list):
             raise ValueError("API tokens must be a JSON array")

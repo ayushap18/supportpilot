@@ -15,6 +15,8 @@ The browser keeps the token in memory. Refreshing the page requires reconnecting
 
 | View | What it is for |
 | --- | --- |
+| Repositories | Connect GitHub, select repositories, sync commits/issues/activity, import docs, and publish linked issues |
+| Agent runs | Queue tasks, start the local CLI bridge, and review recorded results and usage |
 | Overview | Stored ticket totals, current review backlog, seven UTC days of activity, and readiness items |
 | Tickets | Search and filter tickets; manage context, priority, ownership, status, notes, and investigations |
 | Review queue | Current unreviewed drafts that still match their ticket revision |
@@ -49,3 +51,11 @@ Seed documents are read-only synthetic examples. Workspace documents survive app
 - **Live:** hosted model generation and embeddings use your workspace documents. Synthetic seed documents are excluded, and account/service/incident tools are disabled until real adapters exist. Add relevant knowledge before investigating. Requests that need disconnected tools should seek more context or escalate.
 
 The live adapter and deployment configuration are implemented; real provider quality and a public Render deployment remain unverified. Follow the [release checklist](RELEASE_CHECKLIST.md) and [deployment guide](DEPLOYMENT.md) before using customer data.
+
+## Engineering workflow
+
+See [GitHub setup](GITHUB_SETUP.md) for OAuth configuration and [Agent bridge](AGENT_BRIDGE.md) for local provider setup. GitHub connection requires an admin and retains workspace-token sign-in. Repository contributors do not automatically become workspace members.
+
+In **Knowledge**, **Upload file** previews a UTF-8 `.md`, `.markdown`, or `.txt` document before saving. The limit is 30,000 characters/120 KB; indexing and permission checks are the same as manually entered documents. PDFs and binary formats are unsupported.
+
+Repository snapshots are bounded and refreshed explicitly. Synchronize after changes, import updated documentation, and archive knowledge files removed or renamed upstream. Review imported sources before relying on generated responses.
