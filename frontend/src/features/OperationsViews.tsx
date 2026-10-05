@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   ArrowUpRight,
   BookOpen,
@@ -98,11 +99,13 @@ export function Overview({
   onTicket,
   onQueue,
   onKnowledge,
+  attention,
 }: {
   data: Operations;
   onTicket: (ticket: QueueTicket) => void;
   onQueue: (review?: boolean) => void;
   onKnowledge: () => void;
+  attention?: ReactNode;
 }) {
   const stats = [
     {
@@ -157,6 +160,7 @@ export function Overview({
           </Card>
         ))}
       </div>
+      {attention}
       {data.metrics && <TeamMetrics metrics={data.metrics} />}
       <div className="overview-grid">
         <Card className="trend-panel">

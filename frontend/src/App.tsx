@@ -85,7 +85,7 @@ import { AgentRunsView } from "./features/AgentRunsView";
 import { KnowledgeView } from "./features/KnowledgeView";
 import { AuthPages, usePage } from "./features/AuthPages";
 import { TeamInvites } from "./features/TeamInvites";
-import { MissionControl } from "./features/MissionControl";
+import { AttentionPanel, MissionControl } from "./features/MissionControl";
 import { TicketManagement, TicketNotes } from "./features/TicketManagement";
 import { StateBadge, SectionHeading } from "./features/shared";
 import type { Operations, QueueTicket } from "./types";
@@ -875,14 +875,14 @@ export default function App() {
             </div>
           )}
 
-          {view === "workspace" && (
+          {view === "workspace" && selected && (
             <section className="overview-grid" aria-label="Workspace overview">
               {[
                 {
                   label: "Workspace tickets",
                   value: String(
                     operations?.counts.tickets ?? tickets.length,
-                  ).padStart(2, "0"),
+                  ),
                   note: "Available in your inbox",
                   icon: Inbox,
                   tone: "emerald",
@@ -890,7 +890,7 @@ export default function App() {
                 {
                   label: "Cited sources",
                   value: investigation
-                    ? String(sources.length).padStart(2, "0")
+                    ? String(sources.length)
                     : "—",
                   note: "Selected investigation",
                   icon: BookOpen,
@@ -944,6 +944,17 @@ export default function App() {
                 onTicket={selectTicket}
                 onQueue={(review) => navigate(review ? "reviews" : "workspace")}
                 onKnowledge={() => navigate("knowledge")}
+                attention={
+                  <AttentionPanel
+                    api={api}
+                    onOpenRun={(id) => {
+                      setFocusRun(id);
+                      navigate("agents");
+                    }}
+                    onOpenTicket={openTicketId}
+                    onOpenMission={() => navigate("mission")}
+                  />
+                }
               />
             </div>
           ) : view === "repositories" && operations ? (
@@ -1202,10 +1213,15 @@ export default function App() {
                       <Layers3 size={32} />
                     </div>
                     <div className="eyebrow">CONTEXT → EVIDENCE → DECISION</div>
-                    <h2>Good answers start here.</h2>
+                    <h2>
+                      {tickets.length
+                        ? "Pick a ticket to investigate."
+                        : "Good answers start here."}
+                    </h2>
                     <p>
-                      Select a ticket to investigate, or create one to see the
-                      complete support workflow.
+                      {tickets.length
+                        ? "Choose a ticket from the inbox to see its evidence, draft, and review."
+                        : "Create a ticket to see the complete support workflow."}
                     </p>
                     <Button
                       variant="default"
@@ -1218,7 +1234,7 @@ export default function App() {
                       }}
                     >
                       <Plus size={16} />
-                      Create your first ticket
+                      {tickets.length ? "Create a ticket" : "Create your first ticket"}
                     </Button>
                     <div className="empty-steps">
                       <span>

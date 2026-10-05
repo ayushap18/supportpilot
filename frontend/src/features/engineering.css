@@ -218,7 +218,7 @@
 }
 .engineering-provider small {
   font-size: 12px;
-  color: var(--info);
+  color: var(--n-9);
   line-height: 1.6;
   display: block;
 }
@@ -602,5 +602,20 @@
   }
   .run-filters input {
     grid-column: 1 / -1;
+  }
+}
+@media (max-width: 620px) {
+  /* Setup reference cards shrink to a compact grid so run history stays near the top. */
+  .engineering-provider-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+  }
+  .engineering-provider p,
+  .engineering-provider small,
+  .engineering-provider .engineering-icon {
+    display: none;
+  }
+  .engineering-provider {
+    padding: 12px !important;
   }
 }

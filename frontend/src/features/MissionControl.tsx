@@ -362,6 +362,84 @@ export function MissionControl({
   );
 }
 
+/** Overview summary: the live pipeline plus the five oldest items waiting on a person. */
+export function AttentionPanel({
+  api,
+  onOpenRun,
+  onOpenTicket,
+  onOpenMission,
+}: {
+  api: Api;
+  onOpenRun: (id: string) => void;
+  onOpenTicket: (id: string) => void;
+  onOpenMission: () => void;
+}) {
+  const [mission, setMission] = useState<Mission | null>(null);
+  useEffect(() => {
+    api<Mission>("/mission")
+      .then(setMission)
+      .catch(() => undefined);
+  }, []);
+  if (!mission) return null;
+  const running = mission.pipeline.running > 0;
+  return (
+    <section className="attention" aria-label="Needs attention">
+      <div className="attention-head">
+        <div>
+          <h2>Needs attention</h2>
+          <p>
+            {mission.work_queue.length
+              ? `${mission.work_queue.length} item${mission.work_queue.length === 1 ? "" : "s"} waiting on a person, oldest first`
+              : "Nothing is waiting on you"}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={onOpenMission}>
+          Open mission control
+        </Button>
+      </div>
+      <ol className={"attention-pipeline" + (running ? " live" : "")}>
+        {STAGES.map(([key, label]) => (
+          <li
+            key={key}
+            className={
+              "stage-" + key + (mission.pipeline[key] ? " has-items" : "")
+            }
+          >
+            <strong>{mission.pipeline[key] ?? 0}</strong>
+            <span>{label}</span>
+          </li>
+        ))}
+      </ol>
+      {!!mission.work_queue.length && (
+        <ul className="mission-list">
+          {mission.work_queue.slice(0, 5).map((item) => {
+            const Icon = KIND_ICON[item.kind] || Inbox;
+            return (
+              <li key={item.kind + item.ref.id}>
+                <button
+                  className={"mission-item kind-" + item.kind}
+                  onClick={() =>
+                    item.ref.type === "run"
+                      ? onOpenRun(item.ref.id)
+                      : onOpenTicket(item.ref.id)
+                  }
+                >
+                  <Icon size={16} />
+                  <div>
+                    <strong>{item.title}</strong>
+                    <span>{item.detail}</span>
+                  </div>
+                  {item.since && <time>{dateTime(item.since)}</time>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function ReviewCard({
   run,
   api,

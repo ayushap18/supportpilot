@@ -1885,7 +1885,7 @@ h1 {
   border-top: 1px solid var(--n-5);
   padding-top: 9px;
   font-size: 11px;
-  color: var(--info);
+  color: var(--n-9);
   overflow-wrap: anywhere;
 }
 .source-meta span {

@@ -391,3 +391,98 @@
   background: var(--violet-bg);
   color: var(--violet-soft);
 }
+.attention {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 20px;
+  border: 1px solid var(--n-4);
+  border-radius: 12px;
+  background: var(--n-2);
+  box-shadow: var(--shadow-lg);
+}
+.attention-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.attention-head h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.attention-head p {
+  margin-top: 4px;
+  color: var(--n-9);
+  font-size: 13px;
+}
+.attention-pipeline {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--n-4);
+  border-radius: 10px;
+  background: var(--n-4);
+  list-style: none;
+}
+.attention-pipeline li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--n-1);
+}
+.attention-pipeline strong {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.attention-pipeline span {
+  overflow: hidden;
+  color: var(--n-9);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attention-pipeline .has-items.stage-running {
+  background: var(--live-bg);
+}
+.attention-pipeline .has-items.stage-running strong {
+  color: var(--live);
+}
+.attention-pipeline .has-items.stage-awaiting_review strong,
+.attention-pipeline .has-items.stage-changes_requested strong {
+  color: var(--warn);
+}
+.attention-pipeline .has-items.stage-failed strong {
+  color: var(--danger);
+}
+.attention-pipeline .has-items.stage-accepted strong {
+  color: var(--accent);
+}
+/* Grid children default to min-width:auto; nowrap rows would push cards past the viewport. */
+.mission-grid > *,
+.mission-desk > * {
+  min-width: 0;
+}
+@media (max-width: 620px) {
+  .attention-pipeline {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.mission-review header {
+  flex-wrap: wrap;
+}
+.mission-review header strong {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.mission-review header > div:first-child {
+  flex: 1 1 220px;
+}

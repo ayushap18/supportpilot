@@ -128,7 +128,7 @@
 }
 .chart-day small {
   display: block;
-  color: var(--info);
+  color: var(--n-9);
   margin-top: 4px;
 }
 .health-item {
@@ -229,7 +229,7 @@
 }
 .ticket-table-row small {
   display: block;
-  color: var(--info);
+  color: var(--n-9);
   font-size: 12px;
   margin-top: 6px;
 }
@@ -381,7 +381,7 @@
   gap: 10px;
 }
 .note-list time {
-  color: var(--info);
+  color: var(--n-9);
   font-size: 11px;
 }
 .note-list p {
@@ -450,8 +450,8 @@
 }
 .activity-row {
   display: flex;
-  gap: 18px;
-  padding: 22px 0;
+  gap: 14px;
+  padding: 14px 0;
   border-bottom: 1px solid var(--n-5);
 }
 .activity-row > div {
@@ -462,11 +462,11 @@
 }
 .activity-row p {
   font-size: 13px;
-  color: var(--info);
-  margin: 7px 0;
+  color: var(--n-10);
+  margin: 4px 0;
 }
 .activity-row time {
-  color: var(--info);
+  color: var(--n-9);
   font-size: 12px;
 }
 .event-dot {
@@ -516,7 +516,7 @@
   flex-wrap: wrap;
   gap: 8px;
   margin: 16px 0;
-  color: var(--info);
+  color: var(--n-9);
   font-size: 12px;
 }
 .document-actions {
