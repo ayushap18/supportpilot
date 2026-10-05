@@ -21,7 +21,11 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr = SecretStr("")
     # Live investigation model provider. Anthropic has no embeddings API, so retrieval uses
     # OpenAI embeddings when an OpenAI key is set and the lexical index otherwise.
-    llm_provider: Literal["openai", "anthropic"] = "openai"
+    llm_provider: Literal["openai", "anthropic", "cli"] = "openai"
+    # Keyless live mode: investigations run through your logged-in local CLI (subscription).
+    cli_agent: Literal["claude_code", "codex", "antigravity"] = "claude_code"
+    # Where investigation tools read from. None = synthetic in fixture mode, off in live mode.
+    integrations: Literal["synthetic", "github", "off"] | None = None
     anthropic_api_key: SecretStr = SecretStr("")
     anthropic_model: str = "claude-opus-5-5"
     anthropic_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
@@ -45,7 +49,8 @@ class Settings(BaseSettings):
     frontend_dir: Path = ROOT / "frontend/dist"
     max_rounds: int = 3
     max_tool_calls: int = 5
-    timeout_seconds: float = Field(default=45, gt=0, le=45)
+    # Whole-investigation budget. Local CLI providers need more than API calls (~10 s per step).
+    timeout_seconds: float = Field(default=45, gt=0, le=600)
     max_output_tokens: int = Field(default=1800, ge=128, le=1800)
     max_input_chars: int = Field(default=40000, ge=1000, le=40000)
     max_investigations_per_hour: int = Field(default=30, ge=1, le=1000)
@@ -78,6 +83,13 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "GitHub callback must use HTTPS (or local HTTP) at /api/github/callback"
+            )
+        if self.integrations is None:
+            self.integrations = "synthetic" if self.mode == "fixture" else "off"
+        if self.mode == "live" and self.integrations == "synthetic":
+            raise ValueError(
+                "Live mode cannot use synthetic integrations; set SUPPORTPILOT_INTEGRATIONS "
+                "to github or off"
             )
         slack = self.slack_webhook_url.get_secret_value()
         if slack and not slack.startswith("https://hooks.slack.com/"):

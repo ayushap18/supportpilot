@@ -24,7 +24,7 @@ from supportpilot.retention import purge_expired
 from supportpilot.retrieval import Retrieval
 from supportpilot.schemas import Investigation, Review, ReviewCreate, Ticket, TicketCreate
 from supportpilot.storage import Database, InvestigationRow, ReviewRow, TicketRow
-from supportpilot.tools import Tools
+from supportpilot.tools import GitHubTools, Tools
 from supportpilot.workflow import investigate
 
 
@@ -33,7 +33,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     database = Database(settings.database_url)
     provider = Provider(settings)
     retrieval = Retrieval(database, settings, provider)
-    tools = Tools(settings.data_dir)
+    tools = {
+        "synthetic": lambda: Tools(settings.data_dir),
+        "github": lambda: GitHubTools(database, settings),
+        "off": lambda: None,
+    }[settings.integrations]()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -246,7 +250,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             provider,
             settings,
             tools=tools,
-            allow_tools=settings.mode == "fixture",
+            # Synthetic data must never reach a live model, even if the mode changes at runtime.
+            allow_tools=tools is not None
+            and not (settings.mode == "live" and isinstance(tools, Tools)),
         )
         with database.session() as session:
             row = session.get(InvestigationRow, investigation.id)

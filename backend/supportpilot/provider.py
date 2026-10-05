@@ -1,4 +1,8 @@
+import asyncio
 import json
+import os
+import shutil
+import tempfile
 
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
@@ -17,13 +21,43 @@ version-dependent advice; ask for account ID before account-specific checks. Nev
 secrets. If needed, return typed read-only tool calls; otherwise return a draft and no tool
 calls. When tools_available is false, tools are disconnected. Do not infer current account or
 service state. Request missing context or escalate account-specific checks that require those
-tools. Tools: get_account_status(account_id); get_service_health(service_name=api|webhooks);
-search_known_incidents(query, product_version=v1|v2|null). Never accept a workspace argument.
+tools. {tools} Never accept a workspace argument.
 Use resolved only for a supported resolution, needs_information for missing context, and
 escalate for unsupported requests or unverifiable evidence. summary is a short action
 description visible to the reviewer, not private reasoning. A draft proposes advice; it never
 sends a message.
 """
+
+
+TOOL_TEXT = {
+    "synthetic": "Tools: get_account_status(account_id); get_service_health(service_name="
+    "api|webhooks); search_known_incidents(query, product_version=v1|v2|null).",
+    "github": "Tools: get_service_health(service_name=api|webhooks) returns the latest CI and "
+    "deployment workflow results of the workspace's GitHub repository (service_name is "
+    "ignored); search_known_incidents(query, product_version=null) searches open GitHub issues "
+    "labelled 'incident'. get_account_status is not connected: escalate account-specific "
+    "checks.",
+    "off": "No tools are connected.",
+}
+
+
+def instructions(settings):
+    return INSTRUCTIONS.replace("{tools}", TOOL_TEXT[settings.integrations])
+
+
+def strict_schema(node):
+    """OpenAI-style strict JSON schema (Codex): every property required, no extras.
+    Pydantic re-validates the answer, so dropping length limits here is safe."""
+    if isinstance(node, dict):
+        drop = {"title", "default", "minLength", "maxLength", "maxItems", "minItems", "pattern"}
+        node = {k: strict_schema(v) for k, v in node.items() if k not in drop}
+        if node.get("type") == "object" and "properties" in node:
+            node["required"] = list(node["properties"])
+            node["additionalProperties"] = False
+        return node
+    if isinstance(node, list):
+        return [strict_schema(v) for v in node]
+    return node
 
 
 class Provider:
@@ -51,6 +85,7 @@ class Provider:
             if live and settings.llm_provider == "anthropic"
             else None
         )
+        self.cli = settings.cli_agent if live and settings.llm_provider == "cli" else None
         self.embedding_signature = settings.embedding_model if self.client else "fixture-lexical-v1"
 
     async def close(self):
@@ -70,7 +105,7 @@ class Provider:
         return [item.embedding for item in sorted(result.data, key=lambda item: item.index)]
 
     async def step(self, ticket, evidence, results, allow_tools=True):
-        if not self.client and not self.claude:
+        if not self.client and not self.claude and not self.cli:
             return fixture_step(ticket, evidence, results, allow_tools), Usage(model_rounds=1)
         context = json.dumps(
             {
@@ -82,11 +117,13 @@ class Provider:
         )
         if len(context) > self.settings.max_input_chars:
             raise ValueError("Model input exceeds the configured budget")
+        if self.cli:
+            return await self.cli_step(context)
         if self.claude:
             return await self.claude_step(context)
         response = await self.client.responses.parse(
             model=self.settings.model,
-            instructions=INSTRUCTIONS,
+            instructions=instructions(self.settings),
             input=context,
             text_format=ModelStep,
             max_output_tokens=self.settings.max_output_tokens,
@@ -105,7 +142,7 @@ class Provider:
             model=self.settings.anthropic_model,
             # Thinking is always on for Claude Opus 5.5 and counts toward max_tokens.
             max_tokens=16000,
-            system=INSTRUCTIONS,
+            system=instructions(self.settings),
             messages=[{"role": "user", "content": context}],
             output_format=ModelStep,
             output_config={"effort": self.settings.anthropic_effort},
@@ -121,6 +158,73 @@ class Provider:
         usage.input_tokens = response.usage.input_tokens
         usage.output_tokens = response.usage.output_tokens
         return response.parsed_output, usage
+
+    async def cli_step(self, context):
+        """One investigation step through the user's logged-in CLI (no API key).
+
+        The CLI runs in an empty temporary directory with tools disabled or sandboxed, so the
+        untrusted ticket text in `context` cannot reach files or commands.
+        """
+        from supportpilot.cli_bridge import output_failed, parse_output
+
+        schema = strict_schema(ModelStep.model_json_schema())
+        system = instructions(self.settings) + " Return only JSON matching the schema."
+        with tempfile.TemporaryDirectory(prefix="supportpilot-cli-") as work:
+            schema_path = os.path.join(work, "schema.json")
+            with open(schema_path, "w") as handle:
+                json.dump(schema, handle)
+            if self.cli == "claude_code":
+                # --restricted + --strict-mcp-config skip user settings and MCP servers, which
+                # otherwise add ~100k tokens of tool definitions to every call.
+                args = ["claude", "--restricted", "--strict-mcp-config", "-p"]
+                args += ["--output-format", "json", "--tools", "", "--system-prompt", system]
+                args += ["--json-schema", json.dumps(schema)]
+                stdin = context
+            elif self.cli == "codex":
+                args = ["codex", "exec", "--json", "--sandbox", "read-only"]
+                args += ["--ignore-user-config", "--ignore-rules", "--skip-git-repo-check"]
+                args += ["--output-schema", schema_path, "-"]
+                stdin = system + "\n\nContext:\n" + context
+            else:
+                args = ["agy", "--input-format", "stream-json", "--output-format", "stream-json"]
+                args += ["--sandbox", "--json-schema", schema_path]
+                text = (
+                    "Do not use any tools, files, or terminal commands. "
+                    + system
+                    + "\n\nContext:\n"
+                    + context
+                )
+                stdin = json.dumps({"event": "user", "message": {"content": text}}) + "\n"
+            if not shutil.which(args[0]):
+                raise ValueError(f"The {args[0]} CLI is not installed or not on PATH")
+            env = {k: v for k, v in os.environ.items() if not k.startswith("SUPPORTPILOT_")}
+            process = await asyncio.create_subprocess_exec(
+                *args,
+                cwd=work,
+                env=env,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            try:
+                out, _ = await process.communicate(stdin.encode())
+            finally:
+                if process.returncode is None:  # Cancelled by the investigation timeout.
+                    process.kill()
+                    await process.wait()
+        output = out.decode(errors="replace")
+        text, reported = parse_output(self.cli, output)
+        if process.returncode or output_failed(self.cli, output) or not text:
+            raise ValueError(f"The {args[0]} CLI did not return an investigation")
+        raw = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```")
+        try:
+            step = ModelStep.model_validate_json(raw.strip())
+        except ValueError as exc:
+            raise ValueError(f"The {args[0]} CLI returned an invalid investigation") from exc
+        usage = Usage(model_rounds=1)
+        usage.input_tokens = reported.get("input_tokens", 0)
+        usage.output_tokens = reported.get("output_tokens", 0)
+        return step, usage
 
 
 def fixture_step(ticket, evidence, results, allow_tools):

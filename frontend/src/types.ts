@@ -104,7 +104,7 @@ export type Operations = {
   role: "admin" | "agent";
   mode: "fixture" | "live";
   model: string;
-  tool_mode: "synthetic" | "disabled";
+  tool_mode: "synthetic" | "github" | "disabled";
   retention_days: number;
   limits: {
     max_rounds: number;

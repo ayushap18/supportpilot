@@ -73,6 +73,15 @@ def queue_items(session, workspace_id):
     return sorted(items, key=lambda item: item["updated_at"] or item["created_at"], reverse=True)
 
 
+def model_label(settings):
+    if settings.llm_provider == "cli":
+        names = {"claude_code": "Claude Code", "codex": "Codex", "antigravity": "Antigravity"}
+        return f"local {names[settings.cli_agent]} CLI on your subscription (no API key)"
+    if settings.llm_provider == "anthropic":
+        return f"Claude API ({settings.anthropic_model})"
+    return f"OpenAI API ({settings.model})"
+
+
 def team_metrics(items, investigations, reviews):
     """Outcome metrics from recorded data only; None when nothing has been measured yet."""
 
@@ -364,8 +373,10 @@ def build_operations_router(database, identity, settings):
             reviewer_id=caller["reviewer_id"],
             role=caller["role"],
             mode=settings.mode,
-            model=settings.model,
-            tool_mode="synthetic" if settings.mode == "fixture" else "disabled",
+            model=settings.model if settings.mode == "fixture" else model_label(settings),
+            tool_mode="synthetic"
+            if settings.mode == "fixture"
+            else {"github": "github"}.get(settings.integrations, "disabled"),
             retention_days=settings.retention_days,
             limits={
                 key: getattr(settings, key)
@@ -393,18 +404,25 @@ def build_operations_router(database, identity, settings):
                 dict(
                     id="model",
                     label="Model provider",
-                    status="demo" if settings.mode == "fixture" else "pending",
+                    status="demo" if settings.mode == "fixture" else "ready",
                     detail="Deterministic fixture responses; no live model calls."
                     if settings.mode == "fixture"
-                    else "Live provider configured; human quality acceptance remains pending.",
+                    else f"Live: {model_label(settings)}.",
                 ),
                 dict(
                     id="tools",
                     label="Account and service integrations",
-                    status="demo" if settings.mode == "fixture" else "pending",
+                    status="demo"
+                    if settings.mode == "fixture"
+                    else "ready"
+                    if settings.integrations == "github"
+                    else "pending",
                     detail="Synthetic tool results for demo scenarios."
                     if settings.mode == "fixture"
-                    else "Disabled until real adapters are configured.",
+                    else "GitHub: service health from Actions runs, incidents from issues labelled "
+                    "'incident'. Account lookups are not connected."
+                    if settings.integrations == "github"
+                    else "No integrations connected; account and service checks go to a human.",
                 ),
                 dict(
                     id="identity",

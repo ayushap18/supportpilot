@@ -34,7 +34,8 @@ The engineering workspace extends support tickets into repository work:
 - **Sign up / sign in with GitHub:** choose a repository you can push to and receive a workspace token (shown once, stored hashed). Sign-in checks that the token belongs to your GitHub account; lost tokens are regenerated only after a fresh GitHub authorization. Admins invite teammates by GitHub username.
 - **Issues to tickets:** open issues labelled `support` become linked tickets on sync or via a signed webhook; pushes flag stale snapshots.
 - **Live runner and draft PRs:** `cli_bridge watch` executes queued runs automatically with live progress logs; edit runs can push their branch, and **Open draft PR** creates a draft pull request for review.
-- **Claude or OpenAI:** live investigations can use Claude (`SUPPORTPILOT_LLM_PROVIDER=anthropic`, default model `claude-opus-5-5`) or OpenAI.
+- **Live without API keys:** `SUPPORTPILOT_MODE=live` with `SUPPORTPILOT_LLM_PROVIDER=cli` runs each investigation step through your logged-in Claude Code (default), Codex, or Antigravity CLI — tools disabled, empty temporary directory, schema-validated output. Claude API (`anthropic`) and OpenAI remain available with keys.
+- **Real integrations:** `SUPPORTPILOT_INTEGRATIONS=github` makes investigation tools read your connected repository: service health from the latest GitHub Actions runs on the default branch, known incidents from open issues labelled `incident`. Account lookups are reported as not connected. Live mode refuses synthetic data.
 - **Metrics and alerts:** approval rate and median time to first draft / resolution on the Overview; optional Slack alerts for review-ready drafts and finished agent runs.
 - **Agent runs:** queue a ticket-linked task for Codex, Claude Code, Antigravity, or an external-report adapter. Execute named CLIs through the local bridge and inspect results, reported tokens/cost, and branch/patch artifacts.
 

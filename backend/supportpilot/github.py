@@ -58,6 +58,20 @@ def utc(value):
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
+def workspace_github(database, settings, workspace_id):
+    """The workspace's own GitHub connection, else the server token, else None."""
+    with database.session() as session:
+        row = session.get(GitHubConnectionRow, workspace_id)
+    if row is not None:
+        key = settings.integration_encryption_key.get_secret_value()
+        try:
+            return GitHubClient(Fernet(key.encode()).decrypt(row.token.encode()).decode())
+        except (InvalidToken, ValueError):
+            return None
+    token = settings.github_token.get_secret_value()
+    return GitHubClient(token) if token else None
+
+
 def build_github_router(database, retrieval, identity, settings):
     router = APIRouter(prefix="/api/github", tags=["github"])
 
