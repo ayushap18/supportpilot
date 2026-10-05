@@ -8,6 +8,8 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select, update
 
+from supportpilot.accounts import members
+from supportpilot.agent_storage import AgentRunRow
 from supportpilot.redaction import redact
 from supportpilot.retrieval import ChunkRow
 from supportpilot.schemas import Note, NoteCreate, Ticket, TicketPatch
@@ -86,11 +88,9 @@ def build_operations_router(database, identity, settings):
     @router.patch("/tickets/{ticket_id}", response_model=Ticket)
     def edit_ticket(ticket_id: str, payload: TicketPatch, caller: dict = Depends(identity)):
         changes = payload.model_dump(exclude_unset=True, exclude={"expected_revision"})
-        if changes.get("assignee") is not None and changes["assignee"] not in {
-            entry["reviewer_id"]
-            for entry in settings.identities()
-            if entry["workspace_id"] == caller["workspace_id"]
-        }:
+        if changes.get("assignee") is not None and changes["assignee"] not in members(
+            database, settings, caller["workspace_id"]
+        ):
             raise HTTPException(422, "Assignee must be a member of this workspace")
         for key in ("subject", "description", "log"):
             if key in changes:
@@ -312,11 +312,19 @@ def build_operations_router(database, identity, settings):
                 )
             )
         outcomes = Counter(inv["draft"]["outcome"] for inv in investigations if inv.get("draft"))
-        members = {
-            entry["reviewer_id"]: dict(reviewer_id=entry["reviewer_id"], role=entry["role"])
-            for entry in settings.identities()
-            if entry["workspace_id"] == workspace_id
-        }
+        team = members(database, settings, workspace_id)
+        with database.session() as session:
+            completed_runs = session.scalar(
+                select(func.count())
+                .select_from(AgentRunRow)
+                .where(
+                    AgentRunRow.workspace_id == workspace_id,
+                    AgentRunRow.status == "completed",
+                )
+            )
+        github_login = bool(
+            settings.github_client_id and settings.github_client_secret.get_secret_value()
+        )
         return dict(
             workspace_id=workspace_id,
             reviewer_id=caller["reviewer_id"],
@@ -339,7 +347,7 @@ def build_operations_router(database, identity, settings):
             outcomes=[dict(outcome=key, count=value) for key, value in sorted(outcomes.items())],
             activity=sorted(activity, key=lambda event: event["created_at"], reverse=True)[:50],
             recent_tickets=items[:6],
-            members=sorted(members.values(), key=lambda member: member["reviewer_id"]),
+            members=sorted(team.values(), key=lambda member: member["reviewer_id"]),
             readiness=[
                 dict(
                     id="workflow",
@@ -366,8 +374,19 @@ def build_operations_router(database, identity, settings):
                 dict(
                     id="identity",
                     label="Team identity",
-                    status="pending",
-                    detail="Workspace tokens configured; SSO and member onboarding pending.",
+                    status="ready" if github_login else "pending",
+                    detail="GitHub sign-in with per-repository workspaces; tokens are hashed "
+                    "and regenerable after re-authorization."
+                    if github_login
+                    else "Static workspace tokens only; configure a GitHub OAuth App for sign-in.",
+                ),
+                dict(
+                    id="agents",
+                    label="Coding agents",
+                    status="ready" if completed_runs else "pending",
+                    detail=f"{completed_runs} run(s) completed through the local bridge."
+                    if completed_runs
+                    else "Queue a run and execute it once with the local bridge to verify.",
                 ),
                 dict(
                     id="deployment",

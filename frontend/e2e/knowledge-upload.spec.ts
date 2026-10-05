@@ -5,7 +5,7 @@ const TOKEN = "browser-test-token-at-least-24-characters";
 test("knowledge file upload validates type and previews text before indexed saving", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/#token");
   await page.getByLabel("Workspace token").fill(TOKEN);
   await page
     .getByRole("button", { name: "Connect workspace", exact: true })

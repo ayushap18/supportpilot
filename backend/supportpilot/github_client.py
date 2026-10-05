@@ -57,7 +57,7 @@ class GitHubClient:
         return result
 
 
-async def exchange_code(settings, code, verifier):
+async def exchange_code(settings, code, verifier, redirect_uri=None):
     try:
         async with (
             asyncio.timeout(20),
@@ -69,7 +69,7 @@ async def exchange_code(settings, code, verifier):
                 data={
                     "client_id": settings.github_client_id,
                     "client_secret": settings.github_client_secret.get_secret_value(),
-                    "redirect_uri": settings.github_redirect_uri,
+                    "redirect_uri": redirect_uri or settings.github_redirect_uri,
                     "code": code,
                     "code_verifier": verifier,
                 },

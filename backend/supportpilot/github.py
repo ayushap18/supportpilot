@@ -86,11 +86,11 @@ def build_github_router(database, retrieval, identity, settings):
             raise HTTPException(503, "Integration encryption configuration is invalid") from exc
 
     def client_for(caller):
-        if pat:
-            return GitHubClient(pat)
         with database.session() as session:
             row = session.get(GitHubConnectionRow, caller["workspace_id"])
             if row is None:
+                if pat:
+                    return GitHubClient(pat)
                 raise HTTPException(409, "Connect GitHub first")
             try:
                 return GitHubClient(cipher().decrypt(row.token.encode()).decode())
@@ -107,7 +107,9 @@ def build_github_router(database, retrieval, identity, settings):
 
     @router.get("/status")
     async def status(caller=Depends(identity)):
-        if pat:
+        with database.session() as session:
+            own = session.get(GitHubConnectionRow, caller["workspace_id"]) is not None
+        if pat and not own:
             if "login" not in pat_login:
                 try:
                     pat_login["login"] = (await GitHubClient(pat).get("/user"))["login"]
@@ -208,12 +210,9 @@ def build_github_router(database, retrieval, identity, settings):
             session.commit()
             if consumed.rowcount != 1 or error or not code:
                 return result
-        if not any(
-            i["workspace_id"] == workspace
-            and i["reviewer_id"] == reviewer
-            and i.get("role", "admin") == "admin"
-            for i in settings.identities()
-        ):
+        from supportpilot.accounts import members  # accounts imports this module
+
+        if members(database, settings, workspace).get(reviewer, {}).get("role") != "admin":
             return result
         try:
             box = cipher()

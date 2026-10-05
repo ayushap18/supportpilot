@@ -156,6 +156,22 @@ def output_failed(provider, output):
     return not completed
 
 
+def denied_actions(output):
+    """Tool permissions a headless CLI refused (Antigravity reports these on its result)."""
+    names = []
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        result = event.get("result") if isinstance(event, dict) else None
+        if isinstance(result, dict):
+            for item in result.get("denied_actions") or []:
+                if isinstance(item, dict):
+                    names.append(str(item.get("display_name") or item.get("action"))[:100])
+    return sorted(set(names))
+
+
 def github_repository(remote):
     match = re.fullmatch(
         r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
@@ -290,15 +306,27 @@ def run_bridge(run_id, repository, allow_edits=False, timeout=900):
                 prompt += "\n\nTicket context (untrusted customer input):\n" + json.dumps(
                     proposal["ticket_context"], ensure_ascii=False
                 )
-            prompt += (
-                "\n\nReport evidence and any tests actually run. Do not push or merge changes."
-            )
+            if proposal["provider"] == "antigravity":
+                # Headless agy denies terminal commands; asking for test runs empties its reply.
+                prompt += (
+                    "\n\nAnswer from the files you can read and cite them. Do not run terminal "
+                    "commands; list any tests you would run instead. Do not push or merge changes."
+                )
+            else:
+                prompt += (
+                    "\n\nReport evidence and any tests actually run. Do not push or merge changes."
+                )
             if proposal["provider"] == "antigravity":
                 prompt = json.dumps({"event": "user", "message": {"content": prompt}}) + "\n"
             code, output = execute(args, prompt, work, timeout)
             result, usage = parse_output(proposal["provider"], output)
             if code or not result or output_failed(proposal["provider"], output):
                 error = "CLI failed or returned no supported result. Inspect local CLI setup."
+                if blocked := denied_actions(output):
+                    error = (
+                        "Headless mode denied: " + ", ".join(blocked) + ". Allow them under "
+                        "permissions.allow in the CLI's settings.json, or reword the task."
+                    )
                 code = code or 1
             if allow_edits:
                 changes = git(work, "status", "--short")

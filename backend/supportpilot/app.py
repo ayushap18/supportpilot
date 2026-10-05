@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
+from supportpilot.accounts import build_accounts_router, token_identity
 from supportpilot.agent_runs import build_agent_router
 from supportpilot.config import Settings
 from supportpilot.github import build_github_router
@@ -82,6 +83,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for candidate in settings.identities():
                 if secrets.compare_digest(credentials.credentials, candidate["token"]):
                     return candidate
+            if found := token_identity(database, credentials.credentials):
+                return found
         raise HTTPException(401, "A valid workspace token is required")
 
     @app.get("/health/live")
@@ -335,6 +338,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(409, "This draft revision has already been reviewed") from exc
             return review
 
+    app.include_router(build_accounts_router(database, settings))
     app.include_router(build_github_router(database, retrieval, identity, settings))
     app.include_router(build_agent_router(database, identity, settings))
     app.include_router(build_operations_router(database, identity, settings))

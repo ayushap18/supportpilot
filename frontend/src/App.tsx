@@ -82,6 +82,7 @@ import {
 import { GitHubView } from "./features/GitHubView";
 import { AgentRunsView } from "./features/AgentRunsView";
 import { KnowledgeView } from "./features/KnowledgeView";
+import { AuthPages, usePage } from "./features/AuthPages";
 import { TicketManagement, TicketNotes } from "./features/TicketManagement";
 import { StateBadge, SectionHeading } from "./features/shared";
 import type { Operations, QueueTicket } from "./types";
@@ -193,7 +194,6 @@ const NAV_GROUPS = ["Support", "Engineering", "Workspace"] as const;
 
 export default function App() {
   const [token, setToken] = useState("");
-  const [tokenEntry, setTokenEntry] = useState("");
   const [workspace, setWorkspace] = useState("");
   const [mode, setMode] = useState<"fixture" | "live">("fixture");
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -218,6 +218,8 @@ export default function App() {
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [view, setView] = useState<View>("overview");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [githubLogin, setGithubLogin] = useState(false);
+  const [authPage, goAuth] = usePage();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
@@ -369,8 +371,19 @@ export default function App() {
       setError(
         "GitHub authorization did not complete. Reconnect your workspace to try again.",
       );
-    if (githubResult)
+    const loginResult = new URLSearchParams(window.location.search).get(
+      "login",
+    );
+    if (loginResult === "failed")
+      setError("GitHub sign-in did not complete. Try again.");
+    else if (loginResult === "unavailable")
+      setError("GitHub sign-in is not configured on this server.");
+    if (githubResult || loginResult)
       window.history.replaceState(null, "", window.location.pathname);
+    fetch("/api/auth/config")
+      .then((r) => r.json())
+      .then((data) => setGithubLogin(Boolean(data.github)))
+      .catch(() => undefined);
     fetch("/api/config")
       .then((r) => {
         if (!r.ok) throw Error();
@@ -405,24 +418,23 @@ export default function App() {
     return data;
   }
 
-  async function connect(event: FormEvent) {
-    event.preventDefault();
+  async function connectWith(credential: string) {
     setBusy("connect");
     setError("");
     try {
-      const identity = await api<{ workspace_id: string }>(
+      const identity = await api<{ workspace_id: string; label?: string }>(
         "/session",
         {},
-        tokenEntry,
+        credential,
       );
       const [loaded, samples, summary] = await Promise.all([
-        api<Ticket[]>("/tickets", {}, tokenEntry),
-        api<typeof examples>("/examples", {}, tokenEntry),
-        api<Operations>("/operations", {}, tokenEntry),
+        api<Ticket[]>("/tickets", {}, credential),
+        api<typeof examples>("/examples", {}, credential),
+        api<Operations>("/operations", {}, credential),
       ]);
-      setToken(tokenEntry);
-      setTokenEntry("");
-      setWorkspace(identity.workspace_id);
+      setToken(credential);
+      window.history.replaceState(null, "", window.location.pathname);
+      setWorkspace(identity.label ?? identity.workspace_id);
       setTickets(loaded);
       setExamples(samples);
       setOperations(summary);
@@ -546,6 +558,7 @@ export default function App() {
   }
 
   function disconnect() {
+    goAuth("home");
     setToken("");
     setOperations(null);
     setHistory([]);
@@ -597,95 +610,18 @@ export default function App() {
 
   if (!token)
     return (
-      <div className="auth-shell">
-        <section className="auth-story" aria-label="About SupportPilot">
-          <a className="brand" href="/" aria-label="SupportPilot home">
-            <span className="brand-mark">
-              <Layers3 size={18} />
-            </span>
-            SupportPilot
-          </a>
-          <div className="auth-copy">
-            <span className="auth-chip">
-              <span className="status-dot" />
-              {mode === "fixture" ? "Fixture demo workspace" : "Live workspace"}
-            </span>
-            <h1>Resolve with evidence.</h1>
-            <p>
-              Investigate tickets against your docs and code, trace every step,
-              and keep the final decision with your team.
-            </p>
-            <ul className="auth-points">
-              <li>
-                <FileText size={16} />
-                <div>
-                  <strong>Cited drafts</strong>
-                  <span>Every answer links the sources it used.</span>
-                </div>
-              </li>
-              <li>
-                <GitBranch size={16} />
-                <div>
-                  <strong>Repository context</strong>
-                  <span>GitHub commits, issues, and docs in one place.</span>
-                </div>
-              </li>
-              <li>
-                <Terminal size={16} />
-                <div>
-                  <strong>Coding agents</strong>
-                  <span>Hand off to Codex, Claude Code, or Antigravity.</span>
-                </div>
-              </li>
-            </ul>
-          </div>
-          <span className="auth-foot">
-            <ShieldCheck size={14} /> Drafts never reach customers without human
-            approval.
-          </span>
-        </section>
-        <section className="auth-panel">
-          <form onSubmit={connect} className="auth-form">
-            <h2>Connect to SupportPilot</h2>
-            <p>
-              Use the private workspace token from your local configuration or
-              deployment administrator.
-            </p>
-            {error && (
-              <div className="alert error" role="alert">
-                <TriangleAlert size={16} />
-                {error}
-              </div>
-            )}
-            <label htmlFor="workspace-token">Workspace token</label>
-            <div className="token-field">
-              <KeyRound size={16} />
-              <Input
-                id="workspace-token"
-                type="password"
-                autoComplete="off"
-                autoFocus
-                required
-                minLength={24}
-                value={tokenEntry}
-                onChange={(e) => setTokenEntry(e.target.value)}
-                placeholder="sp_••••••••••••••••••••••••"
-              />
-            </div>
-            <Button variant="default" className="primary" disabled={!!busy}>
-              {busy === "connect" ? (
-                <LoaderCircle size={16} className="spin" />
-              ) : (
-                <ArrowRight size={16} />
-              )}
-              Connect workspace
-            </Button>
-            <small>
-              Your token stays in memory and clears when you reload.
-            </small>
-          </form>
-        </section>
-      </div>
+      <AuthPages
+        page={authPage}
+        go={(next) => {
+          setError("");
+          goAuth(next);
+        }}
+        github={githubLogin}
+        mode={mode}
+        error={error}
+        busy={busy === "connect"}
+        onToken={connectWith}
+      />
     );
 
   return (

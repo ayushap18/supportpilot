@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     github_client_id: str = ""
     github_client_secret: SecretStr = SecretStr("")
     github_redirect_uri: str = "http://127.0.0.1:8000/api/github/callback"
+    # OAuth App callback for "Sign in with GitHub" (register a parent path such as .../api).
+    github_login_redirect_uri: str = "http://127.0.0.1:8000/api/auth/github/callback"
     # Server-wide personal access token; skips OAuth for single-team local installs.
     github_token: SecretStr = SecretStr("")
     integration_encryption_key: SecretStr = SecretStr("")
@@ -65,6 +67,9 @@ class Settings(BaseSettings):
             raise ValueError(
                 "GitHub callback must use HTTPS (or local HTTP) at /api/github/callback"
             )
+        login = urlparse(self.github_login_redirect_uri)
+        if login.scheme not in {"https", "http"} or login.path != "/api/auth/github/callback":
+            raise ValueError("GitHub sign-in callback must end with /api/auth/github/callback")
         tokens = json.loads(self.api_tokens_json.get_secret_value())
         if not isinstance(tokens, list):
             raise ValueError("API tokens must be a JSON array")

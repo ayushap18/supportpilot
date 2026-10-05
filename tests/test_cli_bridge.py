@@ -168,3 +168,19 @@ def test_manual_bridge_claim_report_and_isolated_worktree(tmp_path, monkeypatch)
 )
 def test_final_text_or_zero_exit_does_not_override_provider_failure(provider, output):
     assert bridge.output_failed(provider, output)
+
+
+def test_denied_headless_actions_are_named():
+    output = json.dumps(
+        {
+            "event": "result",
+            "result": {
+                "status": "SUCCESS",
+                "response": "",
+                "denied_actions": [{"action": "command", "display_name": "RunCommand"}],
+            },
+        }
+    )
+    assert bridge.parse_output("antigravity", output)[0] == ""
+    assert bridge.denied_actions(output) == ["RunCommand"]
+    assert bridge.denied_actions('{"type":"turn.completed"}') == []

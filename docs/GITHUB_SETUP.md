@@ -6,6 +6,31 @@ An administrator connects GitHub to an existing SupportPilot workspace. Teammate
 
 The pilot discovers accessible repositories page by page. Select repositories deliberately, then synchronize their recent commits, issues, contributor activity, and source inventory. The interface reports scan limits: a bounded snapshot is not a complete code audit. Queue a coding-agent analysis when you need reasoning over the checked-out repository.
 
+## Sign in with GitHub (workspace tokens)
+
+The home page offers **Sign up** and **Sign in**:
+
+- **Sign up:** verify with GitHub → choose a repository you can push to → SupportPilot creates a workspace connected to that repository and shows a workspace token **once** → continue to the dashboard.
+- **Sign in:** verify with GitHub → enter your workspace token. The server checks that the token belongs to the same GitHub account → dashboard.
+- **Forgot your token?** On the sign-in page after verifying with GitHub, choose the workspace and **Regenerate**. The previous token is revoked immediately.
+- **Server-issued tokens** from `SUPPORTPILOT_API_TOKENS_JSON` still work through "Use a server-issued token" (`/#token`).
+
+Only a SHA-256 hash of each workspace token is stored. Repository admins and maintainers get the admin role; other writers get the agent role.
+
+1. Create an OAuth App at https://github.com/settings/developers → **New OAuth App**.
+   - Homepage URL: `http://127.0.0.1:8000`
+   - Authorization callback URL: `http://127.0.0.1:8000/api`. GitHub accepts any sub-path, so this one callback covers both `/api/auth/github/callback` (sign-in) and `/api/github/callback` (in-app connect).
+2. Put the credentials in `.env` and restart:
+
+```dotenv
+SUPPORTPILOT_GITHUB_CLIENT_ID=...
+SUPPORTPILOT_GITHUB_CLIENT_SECRET=...
+SUPPORTPILOT_INTEGRATION_ENCRYPTION_KEY=...   # Fernet key, see below
+# For deployments: SUPPORTPILOT_GITHUB_LOGIN_REDIRECT_URI=https://YOUR-SERVICE/api/auth/github/callback
+```
+
+The sign-in session lasts 30 minutes in an HttpOnly cookie. Workspace tokens stay in browser memory only.
+
 ## Quick start: server token
 
 For a single team or local install, skip OAuth and give the server a personal access token:

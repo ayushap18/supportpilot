@@ -123,6 +123,12 @@ test("investigate a migration ticket, inspect evidence, and approve the draft", 
   await expect(
     page.getByRole("heading", { name: "Resolve with evidence." }),
   ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Sign in", exact: true })
+    .first()
+    .click();
+  await expect(page).toHaveURL(/#signin$/);
+  await page.getByRole("button", { name: "Use a server-issued token" }).click();
   await page.getByLabel("Workspace token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect workspace" }).click();
   await expect(
@@ -173,7 +179,7 @@ test("investigate a migration ticket, inspect evidence, and approve the draft", 
 test("missing context asks for details and unsupported requests escalate", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/#token");
   await page.getByLabel("Workspace token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect workspace" }).click();
   for (const [sample, expected] of [
@@ -195,7 +201,7 @@ test("missing context asks for details and unsupported requests escalate", async
 test("ticket dialog traps focus, closes with Escape, and tabs support arrow keys", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/#token");
   await page.getByLabel("Workspace token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect workspace" }).click();
   const trigger = page.getByRole("button", { name: "New ticket" });
@@ -234,7 +240,7 @@ test("mobile workspace fits the viewport and handles a rejected token", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/#token");
   await page
     .getByLabel("Workspace token")
     .fill("not-a-valid-token-but-long-enough");
@@ -283,7 +289,7 @@ test("mobile workspace fits the viewport and handles a rejected token", async ({
 test("dashboard supports triage, notes, stale context and knowledge lifecycle", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/#token");
   await page.getByLabel("Workspace token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect workspace" }).click();
   await expect(
@@ -435,7 +441,7 @@ test("dashboard supports triage, notes, stale context and knowledge lifecycle", 
 test("command palette jumps between views and opens the composer", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/#token");
   await page.getByLabel("Workspace token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect workspace" }).click();
   await page.keyboard.press("ControlOrMeta+k");
@@ -448,5 +454,153 @@ test("command palette jumps between views and opens the composer", async ({
   await page.getByRole("option", { name: "New ticket" }).click();
   await expect(
     page.getByRole("heading", { name: "New support ticket" }),
+  ).toBeVisible();
+});
+
+test("sign up with GitHub: pick a repository, save the token, open the dashboard", async ({
+  page,
+}) => {
+  await page.route("**/api/auth/config", (route) =>
+    route.fulfill({ json: { github: true } }),
+  );
+  const session = {
+    login: "octocat",
+    can_regenerate: false,
+    workspaces: [] as object[],
+  };
+  await page.route("**/api/auth/session", (route) =>
+    route.fulfill({ json: session }),
+  );
+  await page.route("**/api/auth/repos?page=1", (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          { id: 1, full_name: "team/app", private: true, description: "App" },
+          { id: 2, full_name: "team/site", private: false, description: null },
+        ],
+        has_more: false,
+      },
+    }),
+  );
+  await page.route("**/api/auth/workspaces", async (route) => {
+    const { full_name } = route.request().postDataJSON();
+    session.workspaces.push({
+      workspace_id: "demo",
+      repository: full_name,
+      role: "admin",
+    });
+    await route.fulfill({
+      status: 201,
+      json: {
+        token: TOKEN,
+        repository: full_name,
+        role: "admin",
+        regenerated: false,
+      },
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Sign up", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Choose a repository" }),
+  ).toBeVisible();
+  await expect(page.getByText("Verified as @octocat")).toBeVisible();
+  await page.getByLabel("Filter repositories").fill("app");
+  await expect(
+    page.getByRole("button", { name: "Select team/site" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Select team/app" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Workspace ready" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Workspace token value")).toHaveText(TOKEN);
+  await page.getByRole("button", { name: "Continue to dashboard" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your support, in focus.", exact: true }),
+  ).toBeVisible();
+});
+
+test("sign in lists workspaces and checks the token; regenerating needs re-authorization", async ({
+  page,
+}) => {
+  await page.route("**/api/auth/config", (route) =>
+    route.fulfill({ json: { github: true } }),
+  );
+  const session = {
+    login: "octocat",
+    can_regenerate: false,
+    workspaces: [
+      { workspace_id: "demo", repository: "team/app", role: "admin" },
+      { workspace_id: "gh-2", repository: "team/site", role: "agent" },
+    ],
+  };
+  await page.route("**/api/auth/session", (route) =>
+    route.fulfill({ json: session }),
+  );
+  const verified: { token: string; workspace_id: string }[] = [];
+  await page.route("**/api/auth/verify", (route) => {
+    const body = route.request().postDataJSON();
+    verified.push(body);
+    return body.token === TOKEN && body.workspace_id === "demo"
+      ? route.fulfill({ json: { workspace_id: "demo" } })
+      : route.fulfill({
+          status: 403,
+          json: { detail: "This workspace token does not belong to @octocat" },
+        });
+  });
+  let regenerated = 0;
+  await page.route("**/api/auth/workspaces/demo/regenerate", (route) => {
+    regenerated += 1;
+    return route.fulfill({
+      status: 201,
+      json: {
+        token: TOKEN,
+        repository: "team/app",
+        role: "admin",
+        regenerated: true,
+      },
+    });
+  });
+
+  await page.goto("/#signin");
+  await expect(
+    page.getByRole("heading", { name: "Choose your workspace" }),
+  ).toBeVisible();
+  await expect(page.getByRole("radio")).toHaveCount(2);
+  await page.getByRole("radio", { name: /team\/site/ }).check();
+  await page.getByLabel("Workspace token").fill(TOKEN);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("does not belong");
+  expect(verified.at(-1)?.workspace_id).toBe("gh-2");
+  await expect(
+    page.getByRole("link", { name: "Forgot your token?" }),
+  ).toHaveAttribute("href", "/api/auth/github/start?intent=regenerate");
+
+  // Without a fresh authorization the regenerate page only offers re-authorization.
+  await page.goto("/#regenerate");
+  await expect(
+    page.getByRole("link", { name: "Re-authorize with GitHub" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Regenerate token for/ }),
+  ).toHaveCount(0);
+
+  session.can_regenerate = true;
+  await page.reload();
+  await page
+    .getByRole("button", { name: "Regenerate token for team/app" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Token regenerated" }),
+  ).toBeVisible();
+  expect(regenerated).toBe(1);
+  await page.getByRole("button", { name: "Continue to dashboard" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your support, in focus.", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByRole("option", { name: "Disconnect" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Resolve with evidence." }),
   ).toBeVisible();
 });

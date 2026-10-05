@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 const TOKEN = "browser-test-token-at-least-24-characters";
 async function connect(page: Page, token = TOKEN) {
-  await page.goto("/");
+  await page.goto("about:blank");
+  await page.goto("/#token");
   await page.getByLabel("Workspace token").fill(token);
   await page.getByRole("button", { name: "Connect workspace" }).click();
   await expect(
