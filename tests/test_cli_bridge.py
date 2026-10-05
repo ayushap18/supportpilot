@@ -242,3 +242,21 @@ def test_watch_runs_eligible_queue_items_once(tmp_path, monkeypatch):
     started.clear()
     assert bridge.watch(repository, allow_edits=True, push=True, once=True) == 0
     assert started == [("r-ok", False, False), ("r-edit", True, True)]
+
+
+def test_watch_stops_on_rejected_token(tmp_path, monkeypatch, capsys):
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    subprocess.run(["git", "init", "-q", str(repository)], check=True)
+    real_client = httpx.Client
+    monkeypatch.setenv("SUPPORTPILOT_WORKSPACE_TOKEN", "wrong")
+    monkeypatch.setattr(
+        bridge.httpx,
+        "Client",
+        lambda **kw: real_client(
+            **kw, transport=httpx.MockTransport(lambda request: httpx.Response(401))
+        ),
+    )
+    monkeypatch.setattr(bridge.shutil, "which", lambda name: "/bin/" + name)
+    assert bridge.watch(repository) == 1  # Stops instead of retrying forever.
+    assert "token rejected (HTTP 401)" in capsys.readouterr().out

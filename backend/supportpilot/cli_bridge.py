@@ -487,6 +487,18 @@ def watch(repository, allow_edits=False, push=False, interval=10, timeout=900, o
                 response = client.get("/api/agents/runs")
                 response.raise_for_status()
                 queued = [r for r in response.json()["items"] if r["status"] == "queued"]
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in (401, 403):
+                    # Retrying cannot fix a wrong token; say so and stop.
+                    print(
+                        "Workspace token rejected (HTTP "
+                        + str(exc.response.status_code)
+                        + "). Re-enter the token for this repository's workspace and restart.",
+                        flush=True,
+                    )
+                    return 1
+                print(f"Server error (HTTP {exc.response.status_code}); retrying", flush=True)
+                queued = []
             except httpx.HTTPError as exc:
                 print("Server unavailable (" + type(exc).__name__ + "); retrying", flush=True)
                 queued = []
