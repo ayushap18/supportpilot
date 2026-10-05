@@ -814,7 +814,10 @@ def build_github_router(database, retrieval, identity, settings):
             )
         github = client_for(caller)
         base = (await github.get("/repos/" + repo)).get("default_branch", "main")
-        title = "SupportPilot: " + run["task"].splitlines()[0][:80]
+        first = run["task"].splitlines()[0].strip()
+        if len(first) > 80:
+            first = first[:80].rsplit(" ", 1)[0].rstrip(" ,.:;\"'") + "…"
+        title = "SupportPilot: " + first
         body = (
             f"Opened from SupportPilot agent run `{run_id}` ({run['provider']}).\n\n"
             f"### Task\n{run['task'][:3000]}\n\n"

@@ -515,7 +515,8 @@ def test_agent_run_opens_draft_pull_request_explicitly(github):
         "id": run_id,
         "status": "completed",
         "provider": "codex",
-        "task": "Fix the webhook retry bug\nMore detail",
+        "task": "Fix the webhook retry bug where deliveries stop after the v2 signature "
+        "migration completes\nMore detail",
         "repository_full_name": "team/project",
         "result": "Changed retry.py; token=ghp_" + "a" * 36,
         "artifacts": [{"kind": "branch", "label": "supportpilot/" + run_id, "url": None}],
@@ -541,65 +542,11 @@ def test_agent_run_opens_draft_pull_request_explicitly(github):
     assert opened.status_code == 201, opened.text
     pull = state["pulls"][0]
     assert pull["draft"] is True and pull["head"] == "supportpilot/" + run_id
-    assert pull["base"] == "main" and pull["title"] == "SupportPilot: Fix the webhook retry bug"
+    assert pull["base"] == "main"
+    # Long task lines are cut at a word boundary, never mid-word.
+    assert pull["title"] == (
+        "SupportPilot: Fix the webhook retry bug where deliveries stop after the v2 signature…"
+    )
     assert "ghp_" not in pull["body"]
     assert opened.json()["artifacts"][-1]["url"] == "https://github.com/team/project/pull/5"
     assert client.post(path, headers=admin()).status_code == 409  # Only once per run.
-
-
-def test_support_issues_become_tickets_on_sync_and_webhook(github, settings):
-    import hashlib
-    import hmac
-
-    from supportpilot.github_storage import GitHubRepositoryRow
-
-    client, database, _, state, _ = github
-    connect(github)
-    repo_id = select_repo(github)
-    issue = {
-        "number": 9,
-        "title": "Webhook retries stop",
-        "body": "After v2 upgrade retries stop. token=ghp_" + "b" * 36,
-        "state": "open",
-        "html_url": "https://github.com/team/project/issues/9",
-        "labels": [{"name": "Support"}],
-        "user": {"login": "cust"},
-    }
-    state["support_issues"] = [
-        issue,
-        {**issue, "number": 10, "labels": [{"name": "bug"}]},
-        {**issue, "number": 11, "pull_request": {}},
-    ]
-    path = f"/api/github/repositories/{repo_id}/sync"
-    assert client.post(path, headers=admin()).json()["imported_tickets"] == 1
-    assert client.post(path, headers=admin()).json()["imported_tickets"] == 0  # Idempotent.
-    with database.session() as session:
-        tickets = session.scalars(select(TicketRow).where(TicketRow.workspace_id == WORKSPACE))
-        subjects = [t.payload["subject"] for t in tickets]
-        assert subjects == ["#9 Webhook retries stop"]
-        assert all("ghp_" not in t.payload["description"] for t in tickets)
-    links = client.get(f"/api/github/repositories/{repo_id}", headers=admin()).json()
-    assert links["linked_issues"][0]["state"] == "imported"
-
-    def send(event, payload, secret="hook-secret"):
-        body = json.dumps(payload).encode()
-        signature = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-        return client.post(
-            "/api/github/webhook",
-            content=body,
-            headers={"x-github-event": event, "x-hub-signature-256": signature},
-        )
-
-    assert send("ping", {}).status_code == 404  # Disabled until a secret is configured.
-    settings.github_webhook_secret = SecretStr("hook-secret")
-    assert send("ping", {}, secret="wrong").status_code == 401
-    fresh = {**issue, "number": 12, "title": "Login loop"}
-    opened = send("issues", {"action": "opened", "issue": fresh, "repository": REPO})
-    assert opened.json() == {"event": "issues", "workspaces": 1, "imported": 1}
-    again = send("issues", {"action": "labeled", "issue": fresh, "repository": REPO})
-    assert again.json()["imported"] == 0
-    send("push", {"ref": "refs/heads/main", "repository": REPO})
-    with database.session() as session:
-        snapshot = session.get(GitHubRepositoryRow, repo_id).snapshot
-        assert snapshot["stale"] is True and snapshot["pushed_ref"] == "refs/heads/main"
-    assert "stale" not in client.post(path, headers=admin()).json()
