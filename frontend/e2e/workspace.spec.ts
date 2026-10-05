@@ -610,7 +610,7 @@ test("admins invite teammates and see team metrics", async ({ page }) => {
   await page.getByLabel("Workspace token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect workspace" }).click();
   await expect(
-    page.getByRole("region", { name: "Team performance" }),
+    page.getByRole("region", { name: "Key numbers" }),
   ).toContainText("Approval rate");
   await page.getByRole("button", { name: "Workspace", exact: true }).click();
   await page.getByLabel("GitHub username").fill("@octo-teammate");

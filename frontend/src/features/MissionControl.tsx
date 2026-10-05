@@ -23,14 +23,14 @@ import type { AgentRun } from "./engineering-types";
 import { dateTime, Empty, SectionHeading, StateBadge } from "./shared";
 import "./mission.css";
 
-type WorkItem = {
+export type WorkItem = {
   kind: string;
   title: string;
   detail: string;
   since: string | null;
   ref: { type: "run" | "ticket"; id: string };
 };
-type Mission = {
+export type Mission = {
   pipeline: Record<string, number>;
   work_queue: WorkItem[];
   reliability: {
@@ -71,7 +71,7 @@ type PullStatus = {
   }[];
 };
 
-const STAGES = [
+export const STAGES = [
   ["queued", "Queued"],
   ["running", "Running"],
   ["awaiting_review", "Needs review"],
@@ -85,7 +85,7 @@ const PROVIDERS: Record<string, string> = {
   antigravity: "Antigravity",
   custom: "External",
 };
-const KIND_ICON: Record<string, typeof Inbox> = {
+export const KIND_ICON: Record<string, typeof Inbox> = {
   review_run: ClipboardCheck,
   review_draft: ClipboardCheck,
   failed_run: XCircle,
@@ -359,84 +359,6 @@ export function MissionControl({
         </Card>
       </div>
     </div>
-  );
-}
-
-/** Overview summary: the live pipeline plus the five oldest items waiting on a person. */
-export function AttentionPanel({
-  api,
-  onOpenRun,
-  onOpenTicket,
-  onOpenMission,
-}: {
-  api: Api;
-  onOpenRun: (id: string) => void;
-  onOpenTicket: (id: string) => void;
-  onOpenMission: () => void;
-}) {
-  const [mission, setMission] = useState<Mission | null>(null);
-  useEffect(() => {
-    api<Mission>("/mission")
-      .then(setMission)
-      .catch(() => undefined);
-  }, []);
-  if (!mission) return null;
-  const running = mission.pipeline.running > 0;
-  return (
-    <section className="attention" aria-label="Needs attention">
-      <div className="attention-head">
-        <div>
-          <h2>Needs attention</h2>
-          <p>
-            {mission.work_queue.length
-              ? `${mission.work_queue.length} item${mission.work_queue.length === 1 ? "" : "s"} waiting on a person, oldest first`
-              : "Nothing is waiting on you"}
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={onOpenMission}>
-          Open mission control
-        </Button>
-      </div>
-      <ol className={"attention-pipeline" + (running ? " live" : "")}>
-        {STAGES.map(([key, label]) => (
-          <li
-            key={key}
-            className={
-              "stage-" + key + (mission.pipeline[key] ? " has-items" : "")
-            }
-          >
-            <strong>{mission.pipeline[key] ?? 0}</strong>
-            <span>{label}</span>
-          </li>
-        ))}
-      </ol>
-      {!!mission.work_queue.length && (
-        <ul className="mission-list">
-          {mission.work_queue.slice(0, 5).map((item) => {
-            const Icon = KIND_ICON[item.kind] || Inbox;
-            return (
-              <li key={item.kind + item.ref.id}>
-                <button
-                  className={"mission-item kind-" + item.kind}
-                  onClick={() =>
-                    item.ref.type === "run"
-                      ? onOpenRun(item.ref.id)
-                      : onOpenTicket(item.ref.id)
-                  }
-                >
-                  <Icon size={16} />
-                  <div>
-                    <strong>{item.title}</strong>
-                    <span>{item.detail}</span>
-                  </div>
-                  {item.since && <time>{dateTime(item.since)}</time>}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
   );
 }
 

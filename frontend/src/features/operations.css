@@ -30,35 +30,7 @@
   gap: 22px;
   margin: 0;
 }
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-}
-.metric-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--n-10);
-}
-.metric-number {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  font:
-    600 34px "Geist Variable",
-    sans-serif;
-  color: var(--n-12);
-  margin: 20px 0 10px;
-}
-.metric-number svg {
-  color: var(--accent);
-}
-.metric-card p {
-  font-size: 12px;
-  color: var(--n-10);
-}
+
 .section-heading {
   display: flex;
   flex-wrap: wrap;
@@ -77,83 +49,12 @@
   font-size: 13px;
   margin-top: 5px;
 }
-.chart-legend {
-  display: flex;
-  gap: 20px;
-  font-size: 12px;
-  color: var(--n-10);
-  margin-bottom: 24px;
-}
-.chart-legend span {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.chart-legend i {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-}
-.legend-ticket {
-  background: var(--accent);
-}
-.legend-run {
-  background: var(--info-border);
-}
-.trend-chart {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 14px;
-}
-.chart-day {
-  text-align: center;
-  font-size: 12px;
-  color: var(--n-10);
-}
-.chart-bars {
-  height: 150px;
-  border-bottom: 1px solid var(--n-7);
-  background: repeating-linear-gradient(
-    to top,
-    transparent 0,
-    transparent 48px,
-    var(--n-6) 49px,
-    transparent 50px
-  );
-  margin-bottom: 12px;
-}
-.chart-bars svg {
-  width: 100%;
-  height: 100%;
-}
-.chart-day small {
-  display: block;
-  color: var(--n-9);
-  margin-top: 4px;
-}
-.health-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 0;
-  border-bottom: 1px solid var(--n-5);
-  font-size: 13px;
-}
-.health-item span {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.health-item strong {
-  font-size: 15px;
-}
+
 .small {
   font-size: 12px;
   line-height: 1.7;
 }
-.health-item ~ p {
-  margin: 20px 0;
-}
+
 .state-badge {
   display: inline-flex;
   align-items: center;
@@ -199,40 +100,7 @@
   background: var(--violet-border);
   border-color: var(--violet-border);
 }
-.ticket-table-head,
-.ticket-table-row {
-  display: grid;
-  grid-template-columns: 2.5fr 1fr 0.8fr 1fr;
-  gap: 20px;
-  align-items: center;
-  width: 100%;
-  text-align: left;
-}
-.ticket-table-head {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--n-9);
-  padding: 0 0 12px;
-}
-.ticket-table-row {
-  padding: 17px 0;
-  border-top: 1px solid var(--n-5);
-  font-size: 13px;
-}
-.ticket-table-row:hover strong {
-  color: var(--accent);
-}
-.ticket-table-row strong {
-  display: block;
-  font-weight: 500;
-}
-.ticket-table-row small {
-  display: block;
-  color: var(--n-9);
-  font-size: 12px;
-  margin-top: 6px;
-}
+
 .empty-block {
   display: flex;
   flex-direction: column;
@@ -573,7 +441,6 @@
   font-size: 13px;
 }
 @media (max-width: 1250px) {
-  .metric-grid,
   .document-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -596,31 +463,11 @@
   .operational-content {
     gap: 16px;
   }
-  .metric-number {
-    font-size: 29px;
-  }
-  .metric-grid {
-    gap: 10px;
-  }
-  .metric-top {
-    font-size: 12px;
-  }
-  .metric-card p {
-    font-size: 12px;
-  }
+
   .document-grid {
     grid-template-columns: 1fr;
   }
-  .ticket-table-head {
-    display: none;
-  }
-  .ticket-table-row {
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  .ticket-table-row > span:first-child {
-    grid-column: 1/-1;
-  }
+
   .triage-fields {
     grid-template-columns: 1fr 1fr;
   }
@@ -649,9 +496,7 @@
   .section-heading button {
     font-size: 12px;
   }
-  .chart-legend {
-    gap: 12px;
-  }
+
 }
 .document-heading {
   display: flex;
@@ -694,49 +539,4 @@
     flex-basis: 100%;
   }
 }
-.metric-number svg {
-  color: var(--n-8);
-  opacity: 0.6;
-  transition: opacity 0.15s, color 0.15s;
-}
-.metric-number:hover svg {
-  color: var(--accent);
-  opacity: 1;
-}
 
-.team-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  margin: 16px 0;
-  overflow: hidden;
-  border: 1px solid var(--n-4);
-  border-radius: 12px;
-  background: var(--n-4);
-}
-.team-metrics > div {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 16px 20px;
-  background: var(--n-2);
-}
-.team-metrics span {
-  color: var(--n-9);
-  font-size: 13px;
-}
-.team-metrics strong {
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-}
-.team-metrics small {
-  color: var(--n-9);
-  font-size: 12px;
-}
-@media (max-width: 620px) {
-  .team-metrics {
-    grid-template-columns: 1fr;
-  }
-}

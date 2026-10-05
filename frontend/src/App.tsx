@@ -76,7 +76,6 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import {
-  Overview,
   ActivityList,
   WorkspaceView,
 } from "./features/OperationsViews";
@@ -85,7 +84,8 @@ import { AgentRunsView } from "./features/AgentRunsView";
 import { KnowledgeView } from "./features/KnowledgeView";
 import { AuthPages, usePage } from "./features/AuthPages";
 import { TeamInvites } from "./features/TeamInvites";
-import { AttentionPanel, MissionControl } from "./features/MissionControl";
+import { MissionControl } from "./features/MissionControl";
+import { Dashboard } from "./features/Dashboard";
 import { TicketManagement, TicketNotes } from "./features/TicketManagement";
 import { StateBadge, SectionHeading } from "./features/shared";
 import type { Operations, QueueTicket } from "./types";
@@ -939,22 +939,16 @@ export default function App() {
           )}
           {view === "overview" && operations ? (
             <div className="operational-content">
-              <Overview
+              <Dashboard
+                api={api}
                 data={operations}
                 onTicket={selectTicket}
-                onQueue={(review) => navigate(review ? "reviews" : "workspace")}
-                onKnowledge={() => navigate("knowledge")}
-                attention={
-                  <AttentionPanel
-                    api={api}
-                    onOpenRun={(id) => {
-                      setFocusRun(id);
-                      navigate("agents");
-                    }}
-                    onOpenTicket={openTicketId}
-                    onOpenMission={() => navigate("mission")}
-                  />
-                }
+                onOpenTicket={openTicketId}
+                onOpenRun={(id) => {
+                  setFocusRun(id);
+                  navigate("agents");
+                }}
+                onNavigate={navigate}
               />
             </div>
           ) : view === "repositories" && operations ? (

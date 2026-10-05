@@ -45,6 +45,8 @@ Each family has four steps: `-bg` (tinted fill), `-border`, the solid color, and
 | `info` | `#60a5fa` | Neutral metadata, links, queued |
 | `live` | `#22d3ee` | A genuinely running agent only (pulse, active pipeline stage) |
 
+Chart series use `--chart-1` (`#1aa77a`) and `--chart-2` (`#8f6ff0`) in that fixed order. They pass the palette validator on `--n-2` in dark mode (lightness band, chroma, CVD ΔE 20.4, normal ΔE 28.5, contrast ≥ 3:1). Chart text uses text tokens, never series colors.
+
 shadcn/ui variables (`--background`, `--card`, `--primary`, `--border`, …) are aliases onto these tokens, so the primitives in `src/components/ui` follow the system automatically.
 
 ## Typography
@@ -85,6 +87,18 @@ shadcn/ui variables (`--background`, `--card`, `--primary`, `--border`, …) are
 - **Sidebar (248px):** grouped navigation (Support, Engineering, Workspace), a ⌘K trigger, and an account menu at the bottom (settings, source, disconnect). It collapses into a dialog under 900px.
 - **Sign-in:** a split screen. The left story panel has a radial accent glow, a masked grid, and three capability points. The right side holds a single 380px form. It stacks under 900px.
 - **Ticket workbench:** three columns (inbox, detail, evidence/trace). It drops to two columns at 1200px and stacks at 620px.
+
+## Overview dashboard
+
+The dashboard answers three questions in order: **what needs me now → is the system healthy → what happened lately.** Every fact appears once.
+
+1. **Status line:** a one-sentence summary of open tickets, drafts to decide, agent results to review, and failed runs, plus **Queue agent run**.
+2. **KPI band:** five clickable cells in one hairline-divided strip (open tickets, drafts to decide, agent results to review, approval rate, median time to first draft). Amber only when something is waiting. The fifth cell spans any remainder so no empty cell shows.
+3. **Needs attention (2/3)** with filter chips (All · Reviews · Failures · Unassigned) and relative ages, next to **Agents (1/3)**: a vertical pipeline stepper (cyan pulse only while a run is live), runs by agent (completed vs failed share), and success rate.
+4. **Activity (2/3):** 7-day grouped bars in `--chart-1` / `--chart-2`, a 0/max axis, a recessive midline, a per-day hover tooltip, and a screen-reader table, next to **Readiness (1/3)** as status rows.
+5. **Recent tickets (2/3)** next to **GitHub activity (1/3)**.
+
+Data comes from `/api/operations`, `/api/mission`, and `/api/agents/runners`; the dashboard polls every 15 s. Panels in a row stretch to equal height.
 
 ## Components
 

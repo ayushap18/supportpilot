@@ -75,6 +75,9 @@
   --live-border: #0e4f59;
   --live: #22d3ee;
   --live-soft: #a5f3fc;
+  /* Categorical chart series, validated for the dark card surface (dataviz validator) */
+  --chart-1: #1aa77a;
+  --chart-2: #8f6ff0;
   --shadow-lg: 0 1px 0 0 rgb(255 255 255 / 0.04) inset, 0 16px 40px -12px rgb(0 0 0 / 0.6);
 
   /* shadcn/ui contract */
