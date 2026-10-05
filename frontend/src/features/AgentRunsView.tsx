@@ -93,6 +93,7 @@ export function AgentRunsView({
     [error, setError] = useState(""),
     [copied, setCopied] = useState(""),
     [runners, setRunners] = useState<AgentRunner[]>([]),
+    [bridge, setBridge] = useState("python3 -m supportpilot.cli_bridge"),
     logEnd = useRef<HTMLDivElement | null>(null),
     [form, setForm] = useState({
       provider: "codex",
@@ -126,9 +127,12 @@ export function AgentRunsView({
       api<{ items: QueueTicket[] }>("/queue?page_size=100").then((data) =>
         setTickets(data.items),
       ),
-      api<{ items: AgentProvider[] }>("/agents/providers").then((data) =>
-        setProviders(data.items),
-      ),
+      api<{ items: AgentProvider[]; bridge?: string }>(
+        "/agents/providers",
+      ).then((data) => {
+        setProviders(data.items);
+        if (data.bridge) setBridge(data.bridge);
+      }),
       api<{ items: Repository[] }>("/github/repositories").then((data) =>
         setRepositories(data.items),
       ),
@@ -211,8 +215,7 @@ export function AgentRunsView({
   }
   const needsEdits = (run: AgentRun) =>
     run.allow_edits || run.provider === "antigravity";
-  const watchCommand =
-    "python -m supportpilot.cli_bridge watch --repository /absolute/path/to/repo --allow-edits --push";
+  const watchCommand = `${bridge} watch --repository /absolute/path/to/repo --allow-edits --push`;
   const online = runners.filter((runner) => runner.online);
   // Mirrors the watch loop's skip rules so the UI explains why a run is not starting.
   const blockers = (run: AgentRun, runner: AgentRunner) => {
@@ -235,7 +238,7 @@ export function AgentRunsView({
         : "cd /absolute/path/to/your/repo",
       `export SUPPORTPILOT_API_URL=${window.location.origin}`,
       'printf "Workspace token: "; read -rs SUPPORTPILOT_WORKSPACE_TOKEN; echo; export SUPPORTPILOT_WORKSPACE_TOKEN',
-      `python -m supportpilot.cli_bridge watch --repository "$PWD"${needsEdits(run) ? " --allow-edits" : ""}`,
+      `${bridge} watch --repository "$PWD"${needsEdits(run) ? " --allow-edits" : ""}`,
     ].join("\n");
   const query = search.trim().toLowerCase();
   const visible = runs.filter(

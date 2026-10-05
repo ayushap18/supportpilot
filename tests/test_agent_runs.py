@@ -206,3 +206,13 @@ def test_runner_heartbeat_and_live_log(agents):
     assert client.post(path + "/log", json=forged).status_code == 403
     second = {"Authorization": "second"}
     assert client.post(path + "/log", json=lines, headers=second).status_code == 403
+
+
+def test_providers_give_a_runnable_bridge_command(agents):
+    import os
+    import shlex
+
+    client, _ = agents
+    command = client.get("/api/agents/providers").json()["bridge"]
+    interpreter = shlex.split(command)[0]
+    assert os.access(interpreter, os.X_OK) and command.endswith("-m supportpilot.cli_bridge")

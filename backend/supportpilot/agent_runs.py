@@ -2,6 +2,8 @@
 
 import hashlib
 import secrets
+import shlex
+import sys
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import uuid4
@@ -153,6 +155,9 @@ def build_agent_router(database, identity, settings):
     def providers(caller=Depends(identity)):
         return {
             "items": PROVIDERS,
+            # The server's own interpreter has SupportPilot installed; plain `python` often
+            # does not exist on macOS. Correct for runners on the server's machine.
+            "bridge": shlex.quote(sys.executable) + " -m supportpilot.cli_bridge",
             "note": "Runs start only from your local bridge. Usage covers "
             "reported runs, not subscription limits, provider quotas, or verified billing.",
         }
