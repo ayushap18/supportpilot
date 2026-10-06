@@ -625,3 +625,40 @@ test("admins invite teammates and see team metrics", async ({ page }) => {
     .click();
   await expect(page.getByText("No pending invitations.")).toBeVisible();
 });
+
+test("session survives reload; remember-me survives new tabs; disconnect clears it", async ({
+  page,
+  context,
+}) => {
+  const overview = (p: typeof page) =>
+    p.getByRole("heading", { name: "Your support, in focus.", exact: true });
+  await page.goto("/#token");
+  await page.getByLabel("Workspace token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect workspace" }).click();
+  await expect(overview(page)).toBeVisible();
+  await page.reload();
+  await expect(overview(page)).toBeVisible(); // Same tab: still signed in.
+  const fresh = await context.newPage();
+  await fresh.goto("/");
+  await expect(
+    fresh.getByRole("heading", { name: "Resolve with evidence." }),
+  ).toBeVisible();
+  await fresh.close();
+
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByRole("option", { name: "Disconnect" }).click();
+  await page.goto("/#token");
+  await page.getByLabel("Keep me signed in on this device").check();
+  await page.getByLabel("Workspace token").fill(TOKEN);
+  await page.getByRole("button", { name: "Connect workspace" }).click();
+  await expect(overview(page)).toBeVisible();
+  const remembered = await context.newPage();
+  await remembered.goto("/");
+  await expect(overview(remembered)).toBeVisible(); // Remembered on this device.
+  await remembered.keyboard.press("ControlOrMeta+k");
+  await remembered.getByRole("option", { name: "Disconnect" }).click();
+  await remembered.reload();
+  await expect(
+    remembered.getByRole("heading", { name: "Resolve with evidence." }),
+  ).toBeVisible();
+});

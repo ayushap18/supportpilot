@@ -117,6 +117,10 @@ shadcn/ui (new-york, Radix): Button, Badge, Card, Input, Textarea, Dialog, Tabs,
 
 The 21st.dev registry (`https://21st.dev/r/...`) and its MCP server require an API key (`API_KEY_21ST`). No key was configured during this build, so no 21st.dev components were installed. Their [dashboard collection](https://21st.dev/community/components/s/dashboard) was used only as a visual reference for metric-card and shell composition. To pull real catalog components later, set `API_KEY_21ST` for the 21st plugin, then install through `npx shadcn add` or the MCP `get_component` tool. Integrate them using the tokens above, not their bundled colors.
 
+## Sessions
+
+The workspace token lives in `sessionStorage`, so reloading the tab keeps you signed in and closing it signs you out. **Keep me signed in on this device** also stores it in `localStorage`. **Disconnect** clears both, and a saved token that the server rejects is dropped silently on load. Every storage access is guarded, so the app still works where storage is blocked. The production CSP (`script-src 'self'`) limits script injection, the main risk of keeping tokens in web storage.
+
 ## Accessibility
 
 - WCAG AA contrast: `--n-9` and lighter on `--n-0`/`--n-2` for text; `--n-8` only for icons and non-essential captions.

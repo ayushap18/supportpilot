@@ -21,6 +21,14 @@ python -m supportpilot.cli_bridge run RUN_UUID --repository /absolute/path/to/re
 
 The local repository root must match the command argument. When a repository is associated with the proposal, its `origin` must match the exact GitHub owner/name using an HTTPS or SSH GitHub remote. The bridge does not clone or fetch automatically. Use a trusted checkout at the intended commit.
 
+## Save your token once (`login`)
+
+```sh
+python -m supportpilot.cli_bridge login --repository /absolute/path/to/repository
+```
+
+`login` prompts for the workspace token (hidden), checks it with the server, refuses a token that belongs to a different repository, and saves it in `~/.config/supportpilot/credentials.json` (owner-only, mode 600; override the folder with `SUPPORTPILOT_CONFIG_DIR`). Tokens are keyed by server URL and repository, so `run` and `watch` pick the right one from the checkout's `origin` with no prompt. `SUPPORTPILOT_WORKSPACE_TOKEN` still takes precedence. `logout --repository <path>` removes one; `logout` alone removes all for that server. If the server rejects a token, `watch` says so and stops instead of retrying. Use `python` from the environment where SupportPilot is installed; the app's setup box shows the exact path.
+
 ## Run queued work automatically (`watch`)
 
 Instead of one command per run, start a runner in your repository and leave it open:

@@ -215,7 +215,7 @@ export function AgentRunsView({
   }
   const needsEdits = (run: AgentRun) =>
     run.allow_edits || run.provider === "antigravity";
-  const watchCommand = `${bridge} watch --repository /absolute/path/to/repo --allow-edits --push`;
+  const watchCommand = `${bridge} login --repository /absolute/path/to/repo   # once per machine\n${bridge} watch --repository /absolute/path/to/repo --allow-edits --push`;
   const online = runners.filter((runner) => runner.online);
   // Mirrors the watch loop's skip rules so the UI explains why a run is not starting.
   const blockers = (run: AgentRun, runner: AgentRunner) => {
@@ -237,7 +237,7 @@ export function AgentRunsView({
         ? `git clone https://github.com/${run.repository_full_name}.git && cd ${run.repository_full_name.split("/")[1]}`
         : "cd /absolute/path/to/your/repo",
       `export SUPPORTPILOT_API_URL=${window.location.origin}`,
-      'printf "Workspace token: "; read -rs SUPPORTPILOT_WORKSPACE_TOKEN; echo; export SUPPORTPILOT_WORKSPACE_TOKEN',
+      `${bridge} login --repository "$PWD"   # once per machine; prompts for the token`,
       `${bridge} watch --repository "$PWD"${needsEdits(run) ? " --allow-edits" : ""}`,
     ].join("\n");
   const query = search.trim().toLowerCase();
@@ -327,13 +327,13 @@ export function AgentRunsView({
                 <strong>No runner online</strong>
                 <p>
                   Start a runner in your repository to execute queued runs
-                  automatically. Set SUPPORTPILOT_API_URL and
-                  SUPPORTPILOT_WORKSPACE_TOKEN in that shell first. Drop
+                  automatically. Run `login` once per machine to save this
+                  workspace's token; after that only `watch` is needed. Drop
                   --allow-edits for read-only analysis; --push lets edit runs
                   push their branch so you can open a draft PR.
                 </p>
                 <div className="engineering-command">
-                  <code>{watchCommand}</code>
+                  <code className="multiline">{watchCommand}</code>
                   <Button
                     variant="ghost"
                     aria-label="Copy runner watch command"
@@ -573,8 +573,9 @@ export function AgentRunsView({
                         <p>
                           Start a runner in a checkout of{" "}
                           {selected.repository_full_name || "your repository"}{" "}
-                          with this workspace's token. The token prompt is
-                          hidden, so it stays out of your history and screen.
+                          with this workspace's token. `login` checks the token
+                          and saves it for this machine (owner-only file), so
+                          later runners start without it.
                         </p>
                         <div className="engineering-command">
                           <code className="multiline">

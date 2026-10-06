@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 const TOKEN = "browser-test-token-at-least-24-characters";
 async function connect(page: Page, token = TOKEN) {
+  // Switching identities: drop any session this tab restored from a previous sign-in.
+  await page.goto("/");
+  await page.evaluate(() => {
+    sessionStorage.clear();
+    localStorage.clear();
+  });
   await page.goto("about:blank");
   await page.goto("/#token");
   await page.getByLabel("Workspace token").fill(token);
@@ -39,12 +45,12 @@ test("engineering workspace displays configuration, queues local work, and prese
   ).toBeVisible();
   await expect(page.getByText("No runner online")).toBeVisible();
   await expect(
-    page
-      .locator(".engineering-command")
-      .filter({ hasText: "--push" }),
+    page.locator(".engineering-command").filter({ hasText: "--push" }),
   ).toContainText("cli_bridge watch --repository");
   await expect(
-    page.locator(".engineering-command").filter({ hasText: "read -rs" }),
+    page
+      .locator(".engineering-command")
+      .filter({ hasText: 'login --repository "$PWD"' }),
   ).toContainText("cli_bridge watch");
   for (const command of await page.locator(".engineering-command").all())
     await expect(command).not.toContainText(TOKEN);

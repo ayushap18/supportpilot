@@ -2459,3 +2459,16 @@ h1 {
     scroll-behavior: auto !important;
   }
 }
+
+.boot {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  color: var(--n-9);
+  font-size: 14px;
+}
+.remember-row {
+  margin-top: 20px;
+  color: var(--n-10);
+  font-size: 13px;
+}

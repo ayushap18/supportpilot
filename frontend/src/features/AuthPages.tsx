@@ -183,6 +183,8 @@ export function AuthPages({
   error,
   busy,
   onToken,
+  remember,
+  onRemember,
 }: {
   page: AuthPage;
   go: (page: AuthPage) => void;
@@ -191,6 +193,8 @@ export function AuthPages({
   error: string;
   busy: boolean;
   onToken: (token: string) => Promise<void>;
+  remember: boolean;
+  onRemember: (remember: boolean) => void;
 }) {
   if (page === "home") return <Landing go={go} mode={mode} />;
   const story = STORY[page];
@@ -234,6 +238,17 @@ export function AuthPages({
               go={go}
             />
           )}
+          <label className="checkbox-row remember-row">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => onRemember(e.target.checked)}
+            />
+            <span>
+              Keep me signed in on this device
+              <small>Off: you stay signed in until this tab closes.</small>
+            </span>
+          </label>
         </div>
       </section>
     </div>

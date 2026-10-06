@@ -280,7 +280,7 @@ def execute(args, task, cwd, timeout=900, on_output=None):
             process.stdin.close()
 
 
-def connection():
+def api_url():
     base = os.getenv("SUPPORTPILOT_API_URL", "http://127.0.0.1:8000").rstrip("/")
     parsed = urlparse(base)
     if parsed.scheme != "https" and not (
@@ -289,10 +289,99 @@ def connection():
         raise ValueError("Use HTTPS for remote SupportPilot servers")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("API URL must not contain credentials, query strings, or fragments")
+    return base
+
+
+def credentials_file():
+    root = os.environ.get("SUPPORTPILOT_CONFIG_DIR") or Path.home() / ".config" / "supportpilot"
+    return Path(root) / "credentials.json"
+
+
+def stored_tokens(base):
+    """Saved tokens for one server: {repository-or-workspace: token}."""
+    try:
+        return json.loads(credentials_file().read_text()).get(base, {})
+    except (OSError, ValueError):
+        return {}
+
+
+def origin_repository(repository):
+    try:
+        return github_repository(git(Path(repository), "remote", "get-url", "origin"))
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+def connection(repository=None):
+    base = api_url()
     token = os.environ.get("SUPPORTPILOT_WORKSPACE_TOKEN")
+    if token:
+        return base, token
+    saved = stored_tokens(base)
+    repo = origin_repository(repository) if repository else None
+    token = saved.get(repo) if repo else None
+    if not token and len(saved) == 1:
+        token = next(iter(saved.values()))
     if not token:
-        raise ValueError("Set SUPPORTPILOT_WORKSPACE_TOKEN in your local environment")
+        raise ValueError(
+            "No saved token for "
+            + (repo or "this server")
+            + ". Run `python -m supportpilot.cli_bridge login --repository <path>` once, "
+            "or set SUPPORTPILOT_WORKSPACE_TOKEN."
+        )
     return base, token
+
+
+def login(repository=None):
+    """Verify a workspace token once and save it (owner-only file) for this server."""
+    import getpass
+
+    base = api_url()
+    token = getpass.getpass("Workspace token: ").strip()
+    if not token:
+        raise ValueError("No token entered")
+    with httpx.Client(base_url=base, timeout=30) as client:
+        response = client.get("/api/session", headers={"Authorization": "Bearer " + token})
+    if response.status_code in (401, 403):
+        print("Token rejected by " + base + ". Nothing was saved.")
+        return 1
+    response.raise_for_status()
+    session = response.json()
+    key = (session.get("label") or session["workspace_id"]).lower()
+    repo = origin_repository(repository) if repository else None
+    if repo and session.get("label") and repo != key:
+        print(f"This token belongs to {key}, but {repository} is {repo}. Nothing was saved.")
+        return 1
+    path = credentials_file()
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        data = {}
+    data.setdefault(base, {})[key] = token
+    path.touch(mode=0o600, exist_ok=True)
+    path.chmod(0o600)
+    path.write_text(json.dumps(data, indent=2))
+    print(f"Saved token for {key} ({session['workspace_id']}) at {path}")
+    return 0
+
+
+def logout(repository=None):
+    base = api_url()
+    path = credentials_file()
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        data = {}
+    saved = data.get(base, {})
+    repo = origin_repository(repository) if repository else None
+    removed = [k for k in list(saved) if repo is None or k == repo]
+    for key in removed:
+        del saved[key]
+    if removed:
+        path.write_text(json.dumps(data, indent=2))
+    print("Removed: " + (", ".join(removed) or "nothing"))
+    return 0
 
 
 def runner_name():
@@ -301,7 +390,7 @@ def runner_name():
 
 def run_bridge(run_id, repository, allow_edits=False, timeout=900, push=False):
     run_id = str(UUID(run_id))
-    base, token = connection()
+    base, token = connection(repository)
     repository = Path(repository).resolve(strict=True)
     root = Path(git(repository, "rev-parse", "--show-toplevel")).resolve()
     if root != repository:
@@ -452,7 +541,7 @@ LOCAL_PROVIDERS = {"codex": "codex", "claude_code": "claude", "antigravity": "ag
 
 def watch(repository, allow_edits=False, push=False, interval=10, timeout=900, once=False):
     """Run queued dashboard proposals for this repository until interrupted."""
-    base, token = connection()
+    base, token = connection(repository)
     root = Path(repository).resolve(strict=True)
     try:
         remote = github_repository(git(root, "remote", "get-url", "origin"))
@@ -538,9 +627,11 @@ def watch(repository, allow_edits=False, push=False, interval=10, timeout=900, o
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["run", "watch"])
+    parser.add_argument("action", choices=["run", "watch", "login", "logout"])
     parser.add_argument("run_id", nargs="?", help="Required for `run`")
-    parser.add_argument("--repository", required=True)
+    parser.add_argument(
+        "--repository", help="Repository checkout (required for run/watch; optional for login)"
+    )
     parser.add_argument(
         "--allow-edits",
         action="store_true",
@@ -558,6 +649,12 @@ def main():
     parser.add_argument("--once", action="store_true", help="watch: process the queue once")
     args = parser.parse_args()
     try:
+        if args.action == "login":
+            return login(args.repository)
+        if args.action == "logout":
+            return logout(args.repository)
+        if not args.repository:
+            parser.error(args.action + " requires --repository")
         if args.action == "watch":
             return watch(
                 args.repository, args.allow_edits, args.push, args.interval, args.timeout, args.once

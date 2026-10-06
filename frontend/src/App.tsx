@@ -75,10 +75,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import {
-  ActivityList,
-  WorkspaceView,
-} from "./features/OperationsViews";
+import { ActivityList, WorkspaceView } from "./features/OperationsViews";
 import { GitHubView } from "./features/GitHubView";
 import { AgentRunsView } from "./features/AgentRunsView";
 import { KnowledgeView } from "./features/KnowledgeView";
@@ -204,6 +201,50 @@ const NAV = [
 ] as const;
 const NAV_GROUPS = ["Support", "Engineering", "Workspace"] as const;
 
+/**
+ * Workspace token persistence. sessionStorage keeps you signed in across reloads of this tab;
+ * "Keep me signed in on this device" adds localStorage. Storage can be unavailable (private
+ * mode, blocked site data), so every access is guarded and the app still works without it.
+ */
+const SESSION_KEY = "supportpilot_token";
+const session = {
+  load() {
+    try {
+      return (
+        sessionStorage.getItem(SESSION_KEY) ||
+        localStorage.getItem(SESSION_KEY) ||
+        ""
+      );
+    } catch {
+      return "";
+    }
+  },
+  remembered() {
+    try {
+      return localStorage.getItem(SESSION_KEY) !== null;
+    } catch {
+      return false;
+    }
+  },
+  save(token: string, remember: boolean) {
+    try {
+      sessionStorage.setItem(SESSION_KEY, token);
+      if (remember) localStorage.setItem(SESSION_KEY, token);
+      else localStorage.removeItem(SESSION_KEY);
+    } catch {
+      /* Storage unavailable: the session simply ends on reload. */
+    }
+  },
+  clear() {
+    try {
+      sessionStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(SESSION_KEY);
+    } catch {
+      /* Nothing stored. */
+    }
+  },
+};
+
 export default function App() {
   const [token, setToken] = useState("");
   const [workspace, setWorkspace] = useState("");
@@ -232,6 +273,12 @@ export default function App() {
   const [focusRun, setFocusRun] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [githubLogin, setGithubLogin] = useState(false);
+  const [remember, setRemember] = useState(session.remembered);
+  const [booting, setBooting] = useState(() => Boolean(session.load()));
+  useEffect(() => {
+    const saved = session.load();
+    if (saved) connectWith(saved, true);
+  }, []);
   const [authPage, goAuth] = usePage();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -431,7 +478,7 @@ export default function App() {
     return data;
   }
 
-  async function connectWith(credential: string) {
+  async function connectWith(credential: string, restoring = false) {
     setBusy("connect");
     setError("");
     try {
@@ -446,16 +493,21 @@ export default function App() {
         api<Operations>("/operations", {}, credential),
       ]);
       setToken(credential);
-      window.history.replaceState(null, "", window.location.pathname);
+      session.save(credential, remember);
+      if (!restoring)
+        window.history.replaceState(null, "", window.location.pathname);
       setWorkspace(identity.label ?? identity.workspace_id);
       setTickets(loaded);
       setExamples(samples);
       setOperations(summary);
       setView("overview");
     } catch (e) {
-      setError((e as Error).message);
+      if (restoring)
+        session.clear(); // A saved token that no longer works is dropped quietly.
+      else setError((e as Error).message);
     } finally {
       setBusy("");
+      setBooting(false);
     }
   }
 
@@ -571,6 +623,7 @@ export default function App() {
   }
 
   function disconnect() {
+    session.clear();
     goAuth("home");
     setToken("");
     setOperations(null);
@@ -621,6 +674,12 @@ export default function App() {
     setError("");
   };
 
+  if (!token && booting)
+    return (
+      <div className="boot" role="status">
+        Restoring your session…
+      </div>
+    );
   if (!token)
     return (
       <AuthPages
@@ -634,6 +693,8 @@ export default function App() {
         error={error}
         busy={busy === "connect"}
         onToken={connectWith}
+        remember={remember}
+        onRemember={setRemember}
       />
     );
 
@@ -880,18 +941,14 @@ export default function App() {
               {[
                 {
                   label: "Workspace tickets",
-                  value: String(
-                    operations?.counts.tickets ?? tickets.length,
-                  ),
+                  value: String(operations?.counts.tickets ?? tickets.length),
                   note: "Available in your inbox",
                   icon: Inbox,
                   tone: "emerald",
                 },
                 {
                   label: "Cited sources",
-                  value: investigation
-                    ? String(sources.length)
-                    : "—",
+                  value: investigation ? String(sources.length) : "—",
                   note: "Selected investigation",
                   icon: BookOpen,
                   tone: "violet",
@@ -1228,7 +1285,9 @@ export default function App() {
                       }}
                     >
                       <Plus size={16} />
-                      {tickets.length ? "Create a ticket" : "Create your first ticket"}
+                      {tickets.length
+                        ? "Create a ticket"
+                        : "Create your first ticket"}
                     </Button>
                     <div className="empty-steps">
                       <span>

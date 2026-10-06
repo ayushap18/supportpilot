@@ -260,3 +260,63 @@ def test_watch_stops_on_rejected_token(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(bridge.shutil, "which", lambda name: "/bin/" + name)
     assert bridge.watch(repository) == 1  # Stops instead of retrying forever.
     assert "token rejected (HTTP 401)" in capsys.readouterr().out
+
+
+def test_login_saves_token_privately_and_watch_finds_it(tmp_path, monkeypatch, capsys):
+    import stat
+
+    monkeypatch.setenv("SUPPORTPILOT_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.delenv("SUPPORTPILOT_WORKSPACE_TOKEN", raising=False)
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    subprocess.run(["git", "init", "-q", str(repository)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repository), "remote", "add", "origin", "https://github.com/team/app"],
+        check=True,
+    )
+    tokens = {"sp_good": {"workspace_id": "gh-1", "label": "team/app"}}
+    seen = []
+
+    def handler(request):
+        token = request.headers.get("authorization", "").removeprefix("Bearer ")
+        seen.append(token)
+        if token not in tokens:
+            return httpx.Response(401)
+        if request.url.path == "/api/session":
+            return httpx.Response(200, json=tokens[token])
+        if request.url.path.endswith("/heartbeat"):
+            return httpx.Response(200, json={})
+        return httpx.Response(200, json={"items": []})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(
+        bridge.httpx,
+        "Client",
+        lambda **kw: real_client(**kw, transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setattr(bridge.shutil, "which", lambda name: "/bin/" + name)
+    with pytest.raises(ValueError, match="No saved token"):
+        bridge.watch(repository, once=True)
+
+    monkeypatch.setattr("getpass.getpass", lambda prompt: "sp_bad")
+    assert bridge.login(repository) == 1 and not bridge.credentials_file().exists()
+
+    monkeypatch.setattr("getpass.getpass", lambda prompt: " sp_good\n")
+    assert bridge.login(repository) == 0
+    mode = stat.S_IMODE(bridge.credentials_file().stat().st_mode)
+    assert mode == 0o600 and "sp_good" not in capsys.readouterr().out
+
+    seen.clear()
+    assert bridge.watch(repository, once=True) == 0
+    assert set(seen) == {"sp_good"}  # The saved token was used, no prompt needed.
+
+    other = tmp_path / "other"
+    other.mkdir()
+    subprocess.run(["git", "init", "-q", str(other)], check=True)
+    subprocess.run(
+        ["git", "-C", str(other), "remote", "add", "origin", "https://github.com/team/site"],
+        check=True,
+    )
+    assert bridge.login(other) == 1  # Token for team/app refused for team/site.
+    bridge.logout(repository)
+    assert bridge.stored_tokens("http://127.0.0.1:8000") == {}
