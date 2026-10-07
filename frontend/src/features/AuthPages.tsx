@@ -255,18 +255,116 @@ export function AuthPages({
   );
 }
 
+const TOUR = [
+  {
+    id: "dashboard",
+    label: "Dashboard",
+    title: "What needs you, at a glance",
+    text: "Open tickets, drafts to decide, agent results to review, and failures, each one click from the work.",
+    src: "/tour-dashboard.jpg",
+    alt: "SupportPilot overview dashboard with key numbers, a needs-attention queue, the agent pipeline, and an activity chart",
+  },
+  {
+    id: "mission",
+    label: "Mission control",
+    title: "Every agent run, from queue to review",
+    text: "A live pipeline, a work queue ordered by age, agent reliability by provider, and a review desk with test evidence.",
+    src: "/tour-mission.jpg",
+    alt: "Mission control showing the agent pipeline, work queue, and agent reliability",
+  },
+  {
+    id: "agents",
+    label: "Agent runs",
+    title: "Runs you can trace",
+    text: "Queued, started, finished, reviewed. Live logs while an agent works, results and token usage when it is done.",
+    src: "/tour-agents.jpg",
+    alt: "Agent run history and run details with a timeline from queued to reviewed",
+  },
+];
+
+const AGENTS = [
+  {
+    name: "Claude Code",
+    role: "Analysis and live investigations",
+    text: "Runs with tools disabled for investigations, and restricted read-only tools for repository analysis.",
+  },
+  {
+    name: "Codex",
+    role: "Analysis and edits",
+    text: "Read-only sandbox by default. With edits allowed, it works in a dedicated git worktree and can open a draft PR.",
+  },
+  {
+    name: "Antigravity",
+    role: "Edits in a worktree",
+    text: "Headless and sandboxed in its own worktree. Blocked tool permissions are reported, never silently bypassed.",
+  },
+];
+
+const TRUST = [
+  {
+    icon: KeyRound,
+    title: "No API keys required",
+    text: "Use the Claude Code, Codex, or Antigravity subscription you already have. Keys for the Claude or OpenAI API work too.",
+  },
+  {
+    icon: Terminal,
+    title: "Code stays on your machine",
+    text: "The server never runs repository code. A runner you start locally executes agent work in your own checkout.",
+  },
+  {
+    icon: ClipboardCheck,
+    title: "A person always decides",
+    text: "Drafts and agent results wait for review. Nothing is sent to customers or merged automatically.",
+  },
+  {
+    icon: Lock,
+    title: "Credentials handled carefully",
+    text: "Workspace tokens are stored as hashes and shown once. GitHub tokens are encrypted. Secrets are redacted from logs and drafts.",
+  },
+];
+
+const FAQ = [
+  [
+    "Do I need an OpenAI or Anthropic API key?",
+    "No. In live mode SupportPilot can run each investigation through your logged-in Claude Code, Codex, or Antigravity CLI. API keys are optional.",
+  ],
+  [
+    "What does SupportPilot read from GitHub?",
+    "Only repositories you choose: commits, issues, contributors, docs, and GitHub Actions results. Issues labelled “support” can become tickets, and “incident” issues inform investigations.",
+  ],
+  [
+    "Can an agent change my code?",
+    "Only if you start a runner with --allow-edits. Edits happen in a separate git worktree on its own branch. Pushing and opening a draft PR are separate, explicit steps, and merging is always yours.",
+  ],
+  [
+    "What happens if I lose my workspace token?",
+    "Sign in, choose “Forgot your token?”, and re-authorize with GitHub. A new token replaces the old one immediately.",
+  ],
+  [
+    "Can my team share a workspace?",
+    "Yes. Admins invite teammates by GitHub username; each person accepts with their own GitHub account and gets their own token.",
+  ],
+] as const;
+
 function Landing({ go, mode }: { go: (page: AuthPage) => void; mode: string }) {
+  const [tab, setTab] = useState(TOUR[0].id);
+  const active = TOUR.find((item) => item.id === tab)!;
+  const nav = [
+    ["product", "Product"],
+    ["agents", "Agents"],
+    ["security", "Security"],
+    ["faq", "FAQ"],
+  ];
   return (
     <div className="landing">
       <header className="landing-nav">
         <Brand />
         <nav aria-label="Sections">
-          <a href="#features" onClick={(e) => scrollTo(e, "features")}>
-            Features
-          </a>
-          <a href="#how" onClick={(e) => scrollTo(e, "how")}>
-            How it works
-          </a>
+          {nav.map(([id, label]) => (
+            <a key={id} href={"#" + id} onClick={(e) => scrollTo(e, id)}>
+              {label}
+            </a>
+          ))}
           <a
             href="https://github.com/ayushap18/supportpilot"
             target="_blank"
@@ -290,13 +388,17 @@ function Landing({ go, mode }: { go: (page: AuthPage) => void; mode: string }) {
           <span className="status-dot" />
           {mode === "fixture"
             ? "Demo mode · deterministic fixtures"
-            : "Live model"}
+            : "Live · runs on the agents you already use"}
         </span>
-        <h1>Resolve with evidence.</h1>
+        <h1>
+          Support answers,{" "}
+          <br />
+          backed by evidence.
+        </h1>
         <p>
-          SupportPilot investigates support tickets against your docs and your
-          GitHub repository, drafts a cited answer, and keeps the final decision
-          with your team.
+          SupportPilot investigates tickets against your docs and your GitHub
+          repository, hands code work to Claude Code, Codex, or Antigravity, and
+          keeps every decision with your team.
         </p>
         <div className="hero-actions">
           <Button className="primary hero-cta" onClick={() => go("signup")}>
@@ -312,13 +414,59 @@ function Landing({ go, mode }: { go: (page: AuthPage) => void; mode: string }) {
             <ArrowRight size={16} />
           </Button>
         </div>
-        <div className="hero-frame">
-          <img
-            src="/product-overview.png"
-            alt="SupportPilot dashboard showing ticket metrics, workspace activity, and health"
-            width={1440}
-            height={900}
-          />
+        <p className="hero-note">
+          No API keys · Code stays on your machine · Human review built in
+        </p>
+        <ul className="works-with" aria-label="Works with">
+          <li>
+            <GitHubMark /> GitHub
+          </li>
+          {AGENTS.map((agent) => (
+            <li key={agent.name}>
+              <Terminal size={15} /> {agent.name}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section
+        className="landing-section tour"
+        id="product"
+        aria-labelledby="tour-title"
+      >
+        <span className="section-kicker">Product</span>
+        <h2 id="tour-title">One workspace from ticket to reviewed fix.</h2>
+        <div className="tour-tabs" role="tablist" aria-label="Product tour">
+          {TOUR.map((item) => (
+            <button
+              key={item.id}
+              role="tab"
+              id={"tour-tab-" + item.id}
+              aria-selected={tab === item.id}
+              aria-controls="tour-panel"
+              className={tab === item.id ? "active" : ""}
+              onClick={() => setTab(item.id)}
+            >
+              <strong>{item.label}</strong>
+              <span>{item.title}</span>
+            </button>
+          ))}
+        </div>
+        <div
+          className="tour-panel"
+          role="tabpanel"
+          id="tour-panel"
+          aria-labelledby={"tour-tab-" + active.id}
+        >
+          <p>{active.text}</p>
+          <div className="hero-frame">
+            <img
+              key={active.id}
+              src={active.src}
+              alt={active.alt}
+              loading="lazy"
+            />
+          </div>
         </div>
       </section>
 
@@ -342,6 +490,41 @@ function Landing({ go, mode }: { go: (page: AuthPage) => void; mode: string }) {
         </div>
       </section>
 
+      <section
+        className="landing-section"
+        id="agents"
+        aria-labelledby="agents-title"
+      >
+        <span className="section-kicker">Bring your own agents</span>
+        <h2 id="agents-title">
+          Use the coding agents your team already pays for.
+        </h2>
+        <div className="agent-grid">
+          {AGENTS.map((agent) => (
+            <article key={agent.name} className="agent-card">
+              <span className="agent-icon">
+                <Terminal size={18} />
+              </span>
+              <h3>{agent.name}</h3>
+              <span className="agent-role">{agent.role}</span>
+              <p>{agent.text}</p>
+            </article>
+          ))}
+        </div>
+        <pre className="agent-command" aria-label="Start a runner">
+          <code>
+            <span className="prompt">$</span> python -m supportpilot.cli_bridge
+            login --repository .{"\n"}
+            <span className="prompt">$</span> python -m supportpilot.cli_bridge
+            watch --repository . --allow-edits{"\n"}
+            <span className="muted-line">
+              Watching for queued runs · providers: codex, claude_code,
+              antigravity
+            </span>
+          </code>
+        </pre>
+      </section>
+
       <section className="landing-section" id="how" aria-labelledby="how-title">
         <span className="section-kicker">How it works</span>
         <h2 id="how-title">From GitHub to your dashboard in three steps.</h2>
@@ -349,15 +532,15 @@ function Landing({ go, mode }: { go: (page: AuthPage) => void; mode: string }) {
           {[
             [
               "Sign up with GitHub",
-              "Authorize SupportPilot. We only list repositories you can push to.",
+              "Authorize SupportPilot. Only repositories you can push to are listed.",
             ],
             [
               "Choose a repository",
               "A workspace is created and connected to that repository.",
             ],
             [
-              "Save your token",
-              "Your workspace token is shown once. Lost it? Regenerate after verifying with GitHub.",
+              "Start a runner",
+              "Save your token once with login, then watch. Queued agent runs start on your machine.",
             ],
           ].map(([title, text], i) => (
             <div className="how-step" key={title}>
@@ -369,8 +552,47 @@ function Landing({ go, mode }: { go: (page: AuthPage) => void; mode: string }) {
         </div>
       </section>
 
+      <section
+        className="landing-section"
+        id="security"
+        aria-labelledby="security-title"
+      >
+        <span className="section-kicker">Security</span>
+        <h2 id="security-title">
+          Built to be trusted with your code and your customers.
+        </h2>
+        <div className="trust-grid">
+          {TRUST.map((item) => (
+            <div key={item.title} className="trust-item">
+              <item.icon size={18} />
+              <div>
+                <h3>{item.title}</h3>
+                <p>{item.text}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section
+        className="landing-section faq"
+        id="faq"
+        aria-labelledby="faq-title"
+      >
+        <span className="section-kicker">FAQ</span>
+        <h2 id="faq-title">Questions teams ask first.</h2>
+        <div className="faq-list">
+          {FAQ.map(([question, answer]) => (
+            <details key={question}>
+              <summary>{question}</summary>
+              <p>{answer}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+
       <section className="landing-cta">
-        <h2>Ready to give your support team evidence?</h2>
+        <h2>Give your support team evidence, and your agents a review desk.</h2>
         <div className="hero-actions">
           <Button className="primary hero-cta" onClick={() => go("signup")}>
             <GitHubMark />
@@ -383,8 +605,55 @@ function Landing({ go, mode }: { go: (page: AuthPage) => void; mode: string }) {
       </section>
 
       <footer className="landing-footer">
-        <span>© {new Date().getFullYear()} SupportPilot</span>
-        <span>Evidence grounded · Human reviewed</span>
+        <div className="footer-brand">
+          <Brand />
+          <p>Evidence grounded. Human reviewed.</p>
+        </div>
+        <nav aria-label="Footer">
+          <div>
+            <strong>Product</strong>
+            <a href="#product" onClick={(e) => scrollTo(e, "product")}>
+              Tour
+            </a>
+            <a href="#features" onClick={(e) => scrollTo(e, "features")}>
+              Features
+            </a>
+            <a href="#agents" onClick={(e) => scrollTo(e, "agents")}>
+              Agents
+            </a>
+          </div>
+          <div>
+            <strong>Trust</strong>
+            <a href="#security" onClick={(e) => scrollTo(e, "security")}>
+              Security
+            </a>
+            <a href="#faq" onClick={(e) => scrollTo(e, "faq")}>
+              FAQ
+            </a>
+          </div>
+          <div>
+            <strong>Project</strong>
+            <a
+              href="https://github.com/ayushap18/supportpilot"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Source on GitHub
+            </a>
+            <a
+              href="#signin"
+              onClick={(e) => {
+                e.preventDefault();
+                go("signin");
+              }}
+            >
+              Sign in
+            </a>
+          </div>
+        </nav>
+        <span className="footer-copy">
+          © {new Date().getFullYear()} SupportPilot
+        </span>
       </footer>
     </div>
   );
@@ -988,7 +1257,10 @@ function TokenOnly({
           )}
           Connect workspace
         </Button>
-        <small>Your token stays in memory and clears when you reload.</small>
+        <small>
+          Saved for this tab. Tick “Keep me signed in” to remember it on this
+          device.
+        </small>
       </form>
       <div className="switch-links">
         <button type="button" onClick={() => go("signin")}>

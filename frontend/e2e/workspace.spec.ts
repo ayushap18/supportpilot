@@ -121,7 +121,7 @@ test("investigate a migration ticket, inspect evidence, and approve the draft", 
     animations: "disabled",
   });
   await expect(
-    page.getByRole("heading", { name: "Resolve with evidence." }),
+    page.getByRole("heading", { name: /backed by evidence/ }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Sign in", exact: true })
@@ -601,7 +601,7 @@ test("sign in lists workspaces and checks the token; regenerating needs re-autho
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByRole("option", { name: "Disconnect" }).click();
   await expect(
-    page.getByRole("heading", { name: "Resolve with evidence." }),
+    page.getByRole("heading", { name: /backed by evidence/ }),
   ).toBeVisible();
 });
 
@@ -641,7 +641,7 @@ test("session survives reload; remember-me survives new tabs; disconnect clears 
   const fresh = await context.newPage();
   await fresh.goto("/");
   await expect(
-    fresh.getByRole("heading", { name: "Resolve with evidence." }),
+    fresh.getByRole("heading", { name: /backed by evidence/ }),
   ).toBeVisible();
   await fresh.close();
 
@@ -659,6 +659,6 @@ test("session survives reload; remember-me survives new tabs; disconnect clears 
   await remembered.getByRole("option", { name: "Disconnect" }).click();
   await remembered.reload();
   await expect(
-    remembered.getByRole("heading", { name: "Resolve with evidence." }),
+    remembered.getByRole("heading", { name: /backed by evidence/ }),
   ).toBeVisible();
 });
