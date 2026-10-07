@@ -46,12 +46,12 @@ test("engineering workspace displays configuration, queues local work, and prese
   await expect(page.getByText("No runner online")).toBeVisible();
   await expect(
     page.locator(".engineering-command").filter({ hasText: "--push" }),
-  ).toContainText("cli_bridge watch --repository");
+  ).toContainText("watch --repository");
   await expect(
     page
       .locator(".engineering-command")
       .filter({ hasText: 'login --repository "$PWD"' }),
-  ).toContainText("cli_bridge watch");
+  ).toContainText("watch --repository");
   for (const command of await page.locator(".engineering-command").all())
     await expect(command).not.toContainText(TOKEN);
   await expect(page.getByText("Cost: unknown", { exact: true })).toBeVisible();

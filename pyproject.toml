@@ -12,6 +12,9 @@ dependencies = [
   "pgvector", "httpx", "uvicorn", "openai", "anthropic", "cryptography",
 ]
 
+[project.scripts]
+supportpilot = "supportpilot.cli_bridge:main"
+
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
 

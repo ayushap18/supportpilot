@@ -21,6 +21,16 @@ python -m supportpilot.cli_bridge run RUN_UUID --repository /absolute/path/to/re
 
 The local repository root must match the command argument. When a repository is associated with the proposal, its `origin` must match the exact GitHub owner/name using an HTTPS or SSH GitHub remote. The bridge does not clone or fetch automatically. Use a trusted checkout at the intended commit.
 
+## The `supportpilot` command
+
+`pip install -e .` installs a `supportpilot` command in the project environment (equivalent to `python -m supportpilot.cli_bridge`). To use it from any terminal, link it onto your PATH once:
+
+```sh
+ln -sf "$PWD/.venv/bin/supportpilot" ~/.local/bin/supportpilot
+```
+
+`--repository` defaults to the current folder, so inside a checkout you only need `supportpilot login` (once) and `supportpilot watch`. The app's setup boxes show `supportpilot` when it is on the server's PATH, otherwise the full interpreter path.
+
 ## Save your token once (`login`)
 
 ```sh

@@ -3,8 +3,10 @@
 import hashlib
 import secrets
 import shlex
+import shutil
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
@@ -133,6 +135,14 @@ class CompleteRun(BaseModel):
     error: str | None = Field(default=None, max_length=2000)
 
 
+def bridge_command():
+    """The shortest command that starts the bridge on this machine."""
+    installed = shutil.which("supportpilot")
+    if installed and Path(installed).resolve().parent == (Path(sys.prefix) / "bin").resolve():
+        return "supportpilot"  # The console script from this environment is on PATH.
+    return shlex.quote(sys.executable) + " -m supportpilot.cli_bridge"
+
+
 def now():
     return datetime.now(UTC).isoformat()
 
@@ -157,7 +167,7 @@ def build_agent_router(database, identity, settings):
             "items": PROVIDERS,
             # The server's own interpreter has SupportPilot installed; plain `python` often
             # does not exist on macOS. Correct for runners on the server's machine.
-            "bridge": shlex.quote(sys.executable) + " -m supportpilot.cli_bridge",
+            "bridge": bridge_command(),
             "note": "Runs start only from your local bridge. Usage covers "
             "reported runs, not subscription limits, provider quotas, or verified billing.",
         }

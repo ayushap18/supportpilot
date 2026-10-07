@@ -391,8 +391,7 @@ function Landing({ go, mode }: { go: (page: AuthPage) => void; mode: string }) {
             : "Live · runs on the agents you already use"}
         </span>
         <h1>
-          Support answers,{" "}
-          <br />
+          Support answers, <br />
           backed by evidence.
         </h1>
         <p>
@@ -513,10 +512,10 @@ function Landing({ go, mode }: { go: (page: AuthPage) => void; mode: string }) {
         </div>
         <pre className="agent-command" aria-label="Start a runner">
           <code>
-            <span className="prompt">$</span> python -m supportpilot.cli_bridge
-            login --repository .{"\n"}
-            <span className="prompt">$</span> python -m supportpilot.cli_bridge
-            watch --repository . --allow-edits{"\n"}
+            <span className="prompt">$</span>
+            {"supportpilot login\n"}
+            <span className="prompt">$</span>
+            {"supportpilot watch --allow-edits\n"}
             <span className="muted-line">
               Watching for queued runs · providers: codex, claude_code,
               antigravity

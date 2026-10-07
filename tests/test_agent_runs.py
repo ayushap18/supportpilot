@@ -213,6 +213,9 @@ def test_providers_give_a_runnable_bridge_command(agents):
     import shlex
 
     client, _ = agents
+    import shutil
+
     command = client.get("/api/agents/providers").json()["bridge"]
-    interpreter = shlex.split(command)[0]
-    assert os.access(interpreter, os.X_OK) and command.endswith("-m supportpilot.cli_bridge")
+    executable = shutil.which(shlex.split(command)[0]) or shlex.split(command)[0]
+    assert os.access(executable, os.X_OK)
+    assert command == "supportpilot" or command.endswith("-m supportpilot.cli_bridge")

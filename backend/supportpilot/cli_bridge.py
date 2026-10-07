@@ -630,7 +630,7 @@ def main():
     parser.add_argument("action", choices=["run", "watch", "login", "logout"])
     parser.add_argument("run_id", nargs="?", help="Required for `run`")
     parser.add_argument(
-        "--repository", help="Repository checkout (required for run/watch; optional for login)"
+        "--repository", default=".", help="Repository checkout (default: current folder)"
     )
     parser.add_argument(
         "--allow-edits",
@@ -653,8 +653,6 @@ def main():
             return login(args.repository)
         if args.action == "logout":
             return logout(args.repository)
-        if not args.repository:
-            parser.error(args.action + " requires --repository")
         if args.action == "watch":
             return watch(
                 args.repository, args.allow_edits, args.push, args.interval, args.timeout, args.once
