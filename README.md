@@ -2,102 +2,143 @@
 
 [![CI](https://github.com/ayushap18/supportpilot/actions/workflows/ci.yml/badge.svg)](https://github.com/ayushap18/supportpilot/actions/workflows/ci.yml)
 
-**Investigate technical support tickets, inspect the evidence, and review a response draft.**
+**Support answers, backed by evidence.** SupportPilot investigates support tickets against your docs and your GitHub repository, drafts an answer that cites its sources, hands code work to the coding agents you already use (Claude Code, Codex, or Antigravity), and keeps every decision with a person.
 
-SupportPilot is a standalone operational pilot for a small support team: manage tickets, maintain a knowledge library, investigate issues, and review evidence-backed response drafts. Its default **RelayDesk** demo uses a fictional webhook SaaS and synthetic records.
+[![SupportPilot launch video: a ticket lands, a cited answer, an agent finds the bug, a person approves](docs/media/launch.jpg)](docs/media/launch.mp4)
 
-> **Current status:** the application works in fixture mode. The live OpenAI adapter and Render deployment workflow are implemented, but real provider validation, public hosting, and human-reviewed AI quality gates remain pending credentials and release work.
+▶ [Watch the 20-second launch video](docs/media/launch.mp4)
 
-![SupportPilot ticket workspace](docs/screenshots/workspace.png)
+- **No API keys required.** Live investigations can run through your logged-in Claude Code, Codex, or Antigravity CLI. The Claude API and OpenAI work too, if you prefer keys.
+- **Code stays on your machine.** The server never runs repository code. A runner you start locally does the agent work in your own checkout.
+- **Every answer is checkable.** Drafts cite the exact documents and tool results they used, with a step-by-step trace.
+- **A person always decides.** Drafts and agent results wait for review. Nothing is sent to customers or merged automatically.
 
-## What works
+## What it does
 
-- Overview with real ticket counts, current review backlog, seven-day UTC trends, and readiness items.
-- Searchable, paginated tickets with status, priority, assignment, editable context, and internal notes.
-- Workspace knowledge with versioned sources, indexed search, archive/restore, and admin-only mutations.
-- Version-aware, workspace-scoped retrieval and bounded investigations with inspectable evidence and trace.
-- Current draft review queue, approve/reject decisions, and guards against stale ticket edits or draft approvals.
-- Activity history, configured team roles, execution budgets, hourly limits, and restart recovery.
-- Responsive dark Overview, Tickets, Review queue, Knowledge, Activity, and Workspace views.
-- Reproducible fixture evaluations and prepared CI/deployment workflows.
+| Area | What you get |
+| --- | --- |
+| **Overview** | What needs you right now: open tickets, drafts to decide, agent results to review, failures, approval rate, time to first draft, activity, readiness. |
+| **Tickets** | Triage with status, priority, owner, and internal notes. **Investigate** retrieves version-aware knowledge, checks live service health, and drafts a cited answer you approve or reject. |
+| **Knowledge** | Upload Markdown or import a repository's README and `docs/`. Versioned, searchable, archivable. |
+| **Repositories** | Sync commits, issues, contributors, docs, and files from repositories you choose; Actions status is read live for investigations and PRs. Issues labelled `support` become tickets; a signed webhook streams pushes, PRs, issues, and failed checks. |
+| **Agent runs** | Queue a task for Claude Code, Codex, or Antigravity, with templates and a context pack of knowledge documents. A local runner picks it up, streams a live log, and reports results and token usage. Edit runs can push a branch and open a **draft** PR. |
+| **Mission control** | The agent pipeline from queued to accepted, a work queue ordered by age, a review desk with test evidence and customer confirmation, PR review and CI status, agent reliability, and knowledge freshness. |
+| **Team** | Sign up and sign in with GitHub. Workspaces are tied to a repository you can push to. Admins invite teammates by GitHub username. |
 
-Approval records a decision inside SupportPilot. Ticket resolution is a separate operator action. Customer delivery and external help-desk intake are not connected. Follow the [user guide](docs/USER_GUIDE.md) or inspect the [real-use implementation plan](docs/REAL_USE_PLAN.md).
+![Overview dashboard](docs/screenshots/overview.png)
 
-## GitHub and coding-agent workspace
+<details>
+<summary>More screenshots</summary>
 
-The engineering workspace extends support tickets into repository work:
+![Mission control](docs/screenshots/mission-control.png)
+![Agent runs](docs/screenshots/agent-runs.png)
+![Ticket workbench](docs/screenshots/workspace.png)
+![Home page](docs/screenshots/connect.png)
 
-- **Repositories:** authorize GitHub, browse accessible repositories, select up to 25, and synchronize bounded snapshots of commits, issues, contributors, activity, files, and documentation. Inspect commit patches and scan limits.
-- **Knowledge:** import README/`docs/` sources or preview and save uploaded UTF-8 Markdown/text files. Imports retain document revisions and search indexing; archive obsolete sources explicitly.
-- **Linked issues:** review a ticket and explicitly publish its subject/description to GitHub. Saved links and uncertain-write reconciliation prevent blind duplicate creation.
-- **Mission control:** one view of the agent pipeline (queued → running → needs review → accepted / changes requested / failed), a work queue of everything waiting on a person, a review desk with fix verification (tests before/after, reviewer note, customer confirmation), live PR review and CI/deployment status, agent reliability by provider, a live GitHub activity inbox, and knowledge freshness (docs changed or removed upstream, last indexed, citations). Runs support search and filters, a timeline, task templates, and context packs of knowledge documents. [Screenshot](docs/screenshots/mission-control.png).
-- **Sign up / sign in with GitHub:** choose a repository you can push to and receive a workspace token (shown once, stored hashed). Sign-in checks that the token belongs to your GitHub account; lost tokens are regenerated only after a fresh GitHub authorization. Admins invite teammates by GitHub username.
-- **Issues to tickets:** open issues labelled `support` become linked tickets on sync or via a signed webhook; pushes flag stale snapshots.
-- **Live runner and draft PRs:** `cli_bridge watch` executes queued runs automatically with live progress logs; edit runs can push their branch, and **Open draft PR** creates a draft pull request for review.
-- **Live without API keys:** `SUPPORTPILOT_MODE=live` with `SUPPORTPILOT_LLM_PROVIDER=cli` runs each investigation step through your logged-in Claude Code (default), Codex, or Antigravity CLI — tools disabled, empty temporary directory, schema-validated output. Claude API (`anthropic`) and OpenAI remain available with keys.
-- **Real integrations:** `SUPPORTPILOT_INTEGRATIONS=github` makes investigation tools read your connected repository: service health from the latest GitHub Actions runs on the default branch, known incidents from open issues labelled `incident`. Account lookups are reported as not connected. Live mode refuses synthetic data.
-- **Metrics and alerts:** approval rate and median time to first draft / resolution on the Overview; optional Slack alerts for review-ready drafts and finished agent runs.
-- **Agent runs:** queue a ticket-linked task for Codex, Claude Code, Antigravity, or an external-report adapter. Execute named CLIs through the local bridge and inspect results, reported tokens/cost, and branch/patch artifacts.
+</details>
 
-The server does not execute repository code. The bridge defaults to Codex read-only analysis; Codex edits and Antigravity require explicit `--allow-edits` and a dedicated worktree. Claude Code currently supports analysis only. A finished run does not automatically resolve a ticket or merge code. Provider account quotas and subscription billing are not available through run telemetry.
+## How it works
 
-[Repository dashboard preview](docs/screenshots/repositories.png) (mock GitHub fixture) · [Agent runs preview](docs/screenshots/agent-runs.png).
+```mermaid
+flowchart LR
+    T[Ticket or GitHub issue] --> I[Investigation]
+    K[(Your docs)] --> I
+    G[GitHub: Actions health, incidents] --> I
+    I --> D[Cited draft] --> R{Human review}
+    T --> A[Agent run queued]
+    A --> L[Local runner: Claude Code / Codex / Antigravity]
+    L --> X[Result, live log, usage] --> R
+    X --> P[Draft PR]
+```
 
-GitHub OAuth is a repository connection for an existing workspace, not a replacement for workspace-token sign-in. Real GitHub authorization and CLI execution require your own credentials; tests use provider/API doubles and do not establish a live integration. Start with [GitHub setup](docs/GITHUB_SETUP.md), [the CLI bridge](docs/AGENT_BRIDGE.md), and [the engineering plan](docs/ENGINEERING_WORKSPACE_PLAN.md).
+1. **Sign up with GitHub** and choose a repository. SupportPilot creates a workspace connected to it and shows your workspace token once (it stores only a hash).
+2. **Bring the context.** Import your docs and sync the repository. Tickets come from the app or from `support`-labelled issues.
+3. **Investigate.** The model reads your knowledge and GitHub status, then drafts a cited answer. A person approves or rejects it.
+4. **Hand off code work.** Queue an agent run; your local runner executes it and reports back. Review the result, then open a draft PR if it edited code.
 
-## Interface
+## Quick start
 
-The frontend uses React, TypeScript, Tailwind CSS v4, and shadcn/ui (Radix) primitives, including a ⌘K command palette and account menu. A token-based dark design system (Geist type, one emerald accent, semantic status colors) is specified in [docs/DESIGN.md](docs/DESIGN.md). Every stylesheet color resolves to a design token.
-
-21st.dev catalog components require an `API_KEY_21ST`; none were installed without one. See the design doc for how to add them.
-
-## Example
-
-A ticket says: “After upgrading to API v2, our webhook receiver reports SIGNATURE_MISMATCH.”
-
-SupportPilot retrieves the v2 signature documentation and drafts guidance about `X-Relay-Signature` and raw-body verification. The reviewer can inspect the cited excerpt and approve or reject the draft. Other examples exercise account checks, missing context, outages, and unsupported requests.
-
-## Fixture mode and live mode
-
-| Mode | Retrieval | Draft generation | Provider credentials |
-| --- | --- | --- | --- |
-| Fixture, default | Lexical feature hashing and text ranking | Deterministic demonstration routing | None |
-| Live | OpenAI embeddings over workspace documents | Schema-validated OpenAI Responses drafts; external tools disabled | Required |
-
-Fixture mode includes synthetic tools and example documents. Live mode excludes synthetic seed documents and disables account/service/incident tools until real adapters exist; add your own knowledge first.
-
-Fixture results demonstrate application behavior. They do **not** establish live-model accuracy. The UI labels the active mode. Real provider requests have not yet been verified; the live adapter is covered by mocked contract tests.
-
-## Run locally
-
-Requirements: Python 3.12+ and Node.js 22.12+.
-
-From the repository root:
+Requirements: Python 3.12+, Node.js 22.12+, and Git.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.lock
 python -m pip install --no-deps --no-build-isolation -e .
-python scripts/configure_local.py
+python scripts/configure_local.py        # writes a private .env with a local workspace token
 npm --prefix frontend ci
 npm --prefix frontend run build
 uvicorn supportpilot.app:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
-Open **http://127.0.0.1:8000**. Open your private `.env` locally and copy the `token` value inside `SUPPORTPILOT_API_TOKENS_JSON` into the workspace connection form. The token stays in browser memory and clears on reload. The configuration script refuses to overwrite an existing `.env`.
+Open **http://127.0.0.1:8000**. To sign in without GitHub, choose **Sign in → Use a server-issued token** and paste the `token` value from `SUPPORTPILOT_API_TOKENS_JSON` in your `.env`. Reloading keeps you signed in for that tab; tick **Keep me signed in on this device** to stay signed in across tabs.
 
-Token entries accept an optional `role`: `admin` can manage knowledge, while `agent` can work tickets and review drafts. Legacy entries default to admin. Configure identities on the server; see [team configuration](docs/DEPLOYMENT.md#workspace-identities).
+The default **fixture mode** is a deterministic demo with a fictional product (RelayDesk) and example tickets, so you can try everything without credentials. The local database lives in `.state/`; for PostgreSQL with pgvector, run `docker compose up --build`.
 
-This setup uses a persistent SQLite database in `.state/`. For PostgreSQL/pgvector, use `docker compose up --build` after creating `.env`. PostgreSQL integrations run in GitHub CI.
+### Go live without API keys
 
-For frontend development, run the API on port 8000 and `npm --prefix frontend run dev` in another terminal. Vite proxies API requests.
+Add this to `.env` and restart:
+
+```dotenv
+SUPPORTPILOT_MODE=live
+SUPPORTPILOT_LLM_PROVIDER=cli          # use your logged-in CLI; or anthropic / openai with a key
+SUPPORTPILOT_CLI_AGENT=claude_code     # claude_code | codex | antigravity
+SUPPORTPILOT_INTEGRATIONS=github       # real service health and incidents from your repository
+SUPPORTPILOT_TIMEOUT_SECONDS=180
+```
+
+The CLI runs each investigation step with tools disabled, in an empty temporary folder, and its output must match the investigation schema. Live mode never uses synthetic data. Import your own docs before investigating.
+
+### Sign in with GitHub
+
+Create a GitHub OAuth App with the callback `http://127.0.0.1:8000/api/auth/github/callback` (add `http://127.0.0.1:8000/api/github/callback` too for the in-app connect flow), then set `SUPPORTPILOT_GITHUB_CLIENT_ID`, `SUPPORTPILOT_GITHUB_CLIENT_SECRET`, and `SUPPORTPILOT_INTEGRATION_ENCRYPTION_KEY`. See [GitHub setup](docs/GITHUB_SETUP.md).
+
+### Run coding agents
+
+Install and log in to the agent CLIs you want (`claude`, `codex`, `agy`). Then link the `supportpilot` command onto your PATH once and start a runner inside a checkout:
+
+```bash
+ln -sf "$PWD/.venv/bin/supportpilot" ~/.local/bin/supportpilot   # once per machine
+
+cd ~/code/your-repo
+supportpilot login                 # once: saves this workspace's token (owner-only file)
+supportpilot watch --allow-edits   # leave running; queued runs start automatically
+```
+
+Drop `--allow-edits` for read-only analysis. Add `--push` so edit runs push their branch and you can open a draft PR. Claude Code runs are analysis-only. Details: [Agent bridge](docs/AGENT_BRIDGE.md).
+
+## Configuration
+
+All settings are environment variables (or `.env`) prefixed with `SUPPORTPILOT_`. See [`.env.example`](.env.example).
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `MODE` | `fixture` | `fixture` (deterministic demo) or `live` |
+| `LLM_PROVIDER` | `openai` | Live model: `cli` (no key), `anthropic`, or `openai` |
+| `CLI_AGENT` | `claude_code` | With `cli`: `claude_code`, `codex`, or `antigravity` |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT` | –, `claude-opus-5-5`, `medium` | Claude API provider |
+| `OPENAI_API_KEY`, `MODEL`, `EMBEDDING_MODEL` | –, `gpt-4.1-mini`, `text-embedding-3-small` | OpenAI provider; a key also enables semantic embeddings |
+| `INTEGRATIONS` | `synthetic` in fixture, `off` in live | `github` for real service health and incidents |
+| `API_TOKENS_JSON` | `[]` | Server-issued workspace tokens with `admin` or `agent` roles |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | – | OAuth App for sign-in and repository connection |
+| `INTEGRATION_ENCRYPTION_KEY` | – | Fernet key that encrypts stored GitHub tokens; keep it stable |
+| `GITHUB_TOKEN` | – | Optional server-wide personal access token instead of OAuth |
+| `GITHUB_SUPPORT_LABEL`, `GITHUB_WEBHOOK_SECRET` | `support`, – | Issue-to-ticket label; enables `POST /api/github/webhook` |
+| `SLACK_WEBHOOK_URL` | – | Alerts for review-ready drafts and finished agent runs |
+| `DATABASE_URL` | SQLite in `.state/` | PostgreSQL with pgvector for deployments |
+| `TIMEOUT_SECONDS`, `MAX_INVESTIGATIONS_PER_HOUR`, `RETENTION_DAYS` | `45`, `30`, `30` | Budgets and retention |
+
+## Security model
+
+- **Tokens:** workspace tokens are random, shown once, and stored as SHA-256 hashes. Regenerating a lost token requires a fresh GitHub authorization and re-checks repository access. GitHub tokens are encrypted at rest.
+- **Execution:** the server never runs repository code. Agent CLIs run only on a machine where you started a runner; edits happen in a separate git worktree and need `--allow-edits` on that machine. Nothing is merged automatically.
+- **Live investigations:** the local CLI runs with tools disabled in an empty folder. Ticket text and tool data are treated as untrusted evidence, and secrets are redacted from drafts, logs, and agent results.
+- **Webhooks:** requests must carry a valid HMAC signature. Browser sessions use `sessionStorage` (plus `localStorage` only if you choose to stay signed in) under a strict same-origin CSP.
 
 ## Build and test
 
 ```bash
-ruff check .
-ruff format --check .
+ruff check . && ruff format --check .
 pytest -q
 python -m evals.run --minimum-outcome-accuracy .95
 npm --prefix frontend run build
@@ -105,47 +146,39 @@ npm --prefix frontend exec playwright install chromium
 npm --prefix frontend run test:browser
 ```
 
-Build the frontend and stop local API servers before browser tests: Playwright serves the compiled UI on port 8000 with production security headers and an isolated fixture database. Browser coverage exercises investigation/review, ticket operations, knowledge management, keyboard interaction, and responsive navigation.
+Stop local servers on port 8000 before browser tests; Playwright serves the built UI with production security headers and an isolated fixture database. CI runs backend tests on SQLite and PostgreSQL, the evaluation gate, the frontend build, Chromium workflow tests, and a Docker build.
 
-CI runs backend tests against SQLite and PostgreSQL, a fixture evaluation regression gate, frontend compilation, Chromium workflow tests, and a Docker build/smoke test. The local PostgreSQL integration test is skipped unless `SUPPORTPILOT_TEST_POSTGRES_URL` points to a dedicated test database.
+## Evaluation
 
-## Evaluation evidence
-
-The versioned dataset contains **30 development cases and 20 held-out cases**. Published fixture measurements compare the same corpus and inputs:
+The versioned dataset has **30 development cases and 20 held-out cases** (fixture mode):
 
 | Frozen fixture run | Retrieval-only baseline | Tool workflow |
 | --- | --- | --- |
 | Development outcomes | 22 / 30 | 30 / 30 |
 | Held-out outcomes, three repetitions | 51 / 60 | 60 / 60 |
 
-These are deterministic outcome checks. Semantic citation accuracy and real resolution correctness still require live-model runs and human review. Some required references are missed by retrieval; successful routing does not erase that limitation.
-
-See the [development report](docs/reports/development/REPORT.md), [held-out report](docs/reports/held-out/REPORT.md), and [failure analysis](docs/reports/FAILURES.md). The [evaluation runner](evals/README.md) explains metrics, provenance, and spend limits. A separately triggered GitHub workflow runs budgeted live evaluations after configuration.
+These are deterministic outcome checks, not a measure of live-model accuracy. See the [development report](docs/reports/development/REPORT.md), [held-out report](docs/reports/held-out/REPORT.md), [failure analysis](docs/reports/FAILURES.md), and [evaluation runner](evals/README.md).
 
 ## Deployment
 
-[Deploy with a Render Blueprint](https://render.com/deploy?repo=https://github.com/ayushap18/supportpilot), then follow [the deployment guide](docs/DEPLOYMENT.md).
+The Docker image serves the UI and API; deployments use PostgreSQL with pgvector. [Deploy with a Render Blueprint](https://render.com/deploy?repo=https://github.com/ayushap18/supportpilot) and follow the [deployment guide](docs/DEPLOYMENT.md). Main-branch CI can trigger a deploy of the tested commit through the `RENDER_DEPLOY_HOOK_URL` repository secret.
 
-The Docker service serves both the UI and API. A private PostgreSQL database stores tickets, notes, activity, knowledge sources/vectors, investigations, and reviews. Successful main-branch CI can request a deployment of the tested commit using the private `RENDER_DEPLOY_HOOK_URL` repository secret. No public service has been provisioned yet.
+## Status and limits
 
-## Milestones
+- Live mode has been verified end to end with the local Claude Code and Codex CLIs and real GitHub data. No public deployment is provisioned yet.
+- Account lookups are not connected to a real system; investigations hand account-specific checks to a person.
+- Customer replies are not sent from the app, and external help-desk intake is not connected.
+- Repository access uses an OAuth App; a GitHub App with per-repository permissions is the planned upgrade for organizations.
 
-| Milestone | Status | Tracking |
-| --- | --- | --- |
-| 1. Fixtures and contracts | Implemented and tested | [#1](https://github.com/ayushap18/supportpilot/issues/1) |
-| 2. Retrieval baseline | Implemented; PostgreSQL CI verified | [#2](https://github.com/ayushap18/supportpilot/issues/2) |
-| 3. Investigation workflow | Implemented and tested | [#3](https://github.com/ayushap18/supportpilot/issues/3) |
-| 4. Review interface | Implemented; browser tests verified | [#4](https://github.com/ayushap18/supportpilot/issues/4) |
-| 5. Evaluation | Runner and fixture reports complete; live and human review pending | [#5](https://github.com/ayushap18/supportpilot/issues/5) |
-| 6. Deployment and portfolio | Packaging/workflows prepared; public demo and walkthrough pending | [#6](https://github.com/ayushap18/supportpilot/issues/6) |
+## Documentation
 
-## Project documents
+- [User guide](docs/USER_GUIDE.md): day-to-day workflow
+- [GitHub setup](docs/GITHUB_SETUP.md): sign-in, repositories, webhooks, invitations
+- [Agent bridge](docs/AGENT_BRIDGE.md): runners, provider boundaries, draft PRs
+- [Design system](docs/DESIGN.md): tokens, layout, components, accessibility
+- [Architecture](docs/ARCHITECTURE.md) and [runtime decision record](docs/decisions/0001-mvp-runtime.md)
+- [Deployment](docs/DEPLOYMENT.md) and [release checklist](docs/RELEASE_CHECKLIST.md)
+- [Evaluation plan](docs/EVALUATION.md)
+- API contracts: `/openapi.json` on a running server
 
-- [User guide](docs/USER_GUIDE.md), [real-use plan](docs/REAL_USE_PLAN.md), and [release checklist](docs/RELEASE_CHECKLIST.md).
-- [Original implementation plan](docs/PLAN.md) and acceptance checklists.
-- [Architecture](docs/ARCHITECTURE.md) and [runtime decision record](docs/decisions/0001-mvp-runtime.md).
-- [Evaluation plan](docs/EVALUATION.md) and [evaluation runner](evals/README.md).
-- [Deployment and operations](docs/DEPLOYMENT.md).
-- API contracts are available at `/openapi.json`.
-
-Use synthetic inputs and keep credentials outside version control. See the deployment guide for retention, request limits, and the pilot's operational boundaries.
+Use synthetic inputs while evaluating, and keep credentials out of version control.

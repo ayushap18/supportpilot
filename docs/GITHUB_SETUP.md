@@ -29,7 +29,7 @@ SUPPORTPILOT_INTEGRATION_ENCRYPTION_KEY=...   # Fernet key, see below
 # For deployments: SUPPORTPILOT_GITHUB_LOGIN_REDIRECT_URI=https://YOUR-SERVICE/api/auth/github/callback
 ```
 
-The sign-in session lasts 30 minutes in an HttpOnly cookie. Workspace tokens stay in browser memory only.
+The GitHub verification lasts 30 minutes in an HttpOnly cookie. After you enter the workspace token, the app keeps you signed in for the tab, or across tabs if you tick **Keep me signed in on this device**.
 
 ## Team invitations
 
@@ -80,7 +80,7 @@ Keep the key stable across restarts, and back it up separately from the database
 
 4. Restart SupportPilot. Connect your workspace as an admin and open **Repositories → Connect GitHub**.
 5. Review GitHub's consent screen. OAuth `repo` access is broad and may include private repositories; organization policy can restrict authorization. Repository selection limits what SupportPilot synchronizes, not the permission GitHub grants the OAuth app.
-6. Complete authorization, then reconnect with your workspace token after returning if requested. The token is intentionally kept only in browser memory.
+6. Complete authorization, then reconnect with your workspace token after returning if requested. The token is kept for the browser tab memory.
 7. Select a repository and synchronize it. Inspect the resulting timestamp and limits. Import repository documentation only when you want it available to the workspace's AI investigations.
 
 A failed connection should show a recoverable message. Confirm the callback matches, the encryption key is valid, and GitHub permits the account/organization access. Changing server configuration requires a restart.

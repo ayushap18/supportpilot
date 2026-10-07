@@ -1,6 +1,6 @@
 # Architecture
 
-SupportPilot is a standalone operational pilot for a small support team. The [real-use plan](REAL_USE_PLAN.md) defines its contracts and acceptance criteria; the [user guide](USER_GUIDE.md) explains the operator workflow. Live-model quality and public Render hosting remain pending verification.
+SupportPilot is a support and engineering workspace for a small team. The [real-use plan](REAL_USE_PLAN.md) defines its original contracts; the [user guide](USER_GUIDE.md) explains the operator workflow. Live mode has been verified with local agent CLIs and real GitHub data; public hosting is not yet provisioned.
 
 ## System flow
 
@@ -14,8 +14,8 @@ flowchart TD
     I --> V[(Versioned document chunks)]
     API --> W[Bounded investigation]
     V --> W
-    W --> P[Fixture router or live structured model]
-    W --> T[Fixture-only synthetic read-only tools]
+    W --> P[Fixture router, local agent CLI, or Claude/OpenAI API]
+    W --> T[Read-only tools: synthetic in fixture, GitHub-backed in live]
     W --> D[Draft and citation-ID validation]
     D --> DB
     DB --> UI
@@ -37,7 +37,7 @@ The API serves the compiled frontend and executes investigations directly with b
 | Investigation | Captured ticket revision, state, draft, evidence snapshot, trace, usage, failure details |
 | Review | Investigation/draft revision, reviewer, decision, note, timestamp |
 
-Server-configured bearer tokens identify a workspace, reviewer, and `admin` or `agent` role. Existing token entries without a role default to admin. Both roles can operate tickets and review drafts; only admins can mutate knowledge. Workspace scope applies before access and retrieval. SSO, invitations, and self-service member administration remain release work.
+Bearer tokens identify a workspace, reviewer, and `admin` or `agent` role. They come from server configuration or from GitHub sign-up and invitations (stored as SHA-256 hashes; repository admins and maintainers become admins). Both roles can operate tickets and review drafts; only admins can mutate knowledge, manage GitHub, queue agent runs, and invite teammates. Workspace scope applies before access and retrieval. Local agent CLIs run only on machines where someone started a runner; the server never executes repository code.
 
 Ticket updates require `expected_revision` and perform an atomic revision comparison. A stale edit returns 409. Reviews reject a draft if the ticket revision changed after investigation began. PostgreSQL locks the ticket during review; SQLite serializes the short review transaction. A uniqueness constraint prevents duplicate review decisions for the same draft. Approval and ticket resolution are separate actions.
 

@@ -2,24 +2,16 @@
 
 SupportPilot records proposed tasks, ownership, results, and usage. Creating a run does **not** execute code. An administrator must explicitly start the local bridge on a machine with the selected CLI installed and authenticated. The web server never executes commands supplied by tickets or browsers.
 
-## Run a proposal
+## Quick start
 
-1. In **Agents**, select the provider, describe the task, and optionally associate a ticket and GitHub `owner/repository`. Review the task before starting it.
-2. On macOS or Linux, install SupportPilot in a Python 3.12+ virtual environment (`pip install -e .`). Install and authenticate the selected provider's CLI separately.
-3. Supply your workspace token through the local environment. Do not put it in command arguments, a repository file, or a task. Set `SUPPORTPILOT_API_URL` to your HTTPS deployment URL (local default: `http://127.0.0.1:8000`). Set `SUPPORTPILOT_WORKSPACE_TOKEN` privately through your shell or secret manager.
-4. Copy the run UUID and invoke:
+1. Install SupportPilot in a Python 3.12+ virtual environment (`pip install -e .`), and install and log in to the CLIs you want (`claude`, `codex`, `agy`).
+2. Link the command once: `ln -sf "$PWD/.venv/bin/supportpilot" ~/.local/bin/supportpilot`.
+3. In a checkout of the workspace's repository: `supportpilot login` (once; prompts for the token), then `supportpilot watch`. Add `--allow-edits` to permit edit runs and `--push` to push their branches.
+4. In **Agent runs**, queue a task. The runner picks it up within seconds and streams a live log.
 
-```sh
-python -m supportpilot.cli_bridge run RUN_UUID --repository /absolute/path/to/repository
-```
+Set `SUPPORTPILOT_API_URL` when the server is not `http://127.0.0.1:8000` (remote servers must use HTTPS). To run a single proposal instead of watching, use `supportpilot run RUN_UUID`.
 
-For Codex edits, explicitly add `--allow-edits`. Antigravity requires this flag because its headless mode permits workspace writes. The bridge creates a dedicated `supportpilot/RUN_UUID` branch and a fresh Git worktree from local `HEAD`, and prints its path. Uncommitted changes in the primary checkout are not copied. Worktrees remain on disk for review, including when runs fail; remove them manually after preserving any wanted changes.
-
-```sh
-python -m supportpilot.cli_bridge run RUN_UUID --repository /absolute/path/to/repository --allow-edits
-```
-
-The local repository root must match the command argument. When a repository is associated with the proposal, its `origin` must match the exact GitHub owner/name using an HTTPS or SSH GitHub remote. The bridge does not clone or fetch automatically. Use a trusted checkout at the intended commit.
+Edit runs (Codex with **Allow edits**, and Antigravity) get a dedicated `supportpilot/RUN_UUID` branch in a fresh git worktree from local `HEAD`; uncommitted changes in your checkout are not copied. Worktrees stay on disk for review, including after failures; remove them with `git worktree remove <path>` once you've kept what you need. When a run is linked to a repository, the checkout's `origin` must match it. The bridge never clones or fetches; use a trusted checkout at the intended commit.
 
 ## The `supportpilot` command
 
@@ -34,17 +26,17 @@ ln -sf "$PWD/.venv/bin/supportpilot" ~/.local/bin/supportpilot
 ## Save your token once (`login`)
 
 ```sh
-python -m supportpilot.cli_bridge login --repository /absolute/path/to/repository
+supportpilot login --repository /absolute/path/to/repository   # or run it inside the checkout
 ```
 
-`login` prompts for the workspace token (hidden), checks it with the server, refuses a token that belongs to a different repository, and saves it in `~/.config/supportpilot/credentials.json` (owner-only, mode 600; override the folder with `SUPPORTPILOT_CONFIG_DIR`). Tokens are keyed by server URL and repository, so `run` and `watch` pick the right one from the checkout's `origin` with no prompt. `SUPPORTPILOT_WORKSPACE_TOKEN` still takes precedence. `logout --repository <path>` removes one; `logout` alone removes all for that server. If the server rejects a token, `watch` says so and stops instead of retrying. Use `python` from the environment where SupportPilot is installed; the app's setup box shows the exact path.
+`login` prompts for the workspace token (hidden), checks it with the server, refuses a token that belongs to a different repository, and saves it in `~/.config/supportpilot/credentials.json` (owner-only, mode 600; override the folder with `SUPPORTPILOT_CONFIG_DIR`). Tokens are keyed by server URL and repository, so `run` and `watch` pick the right one from the checkout's `origin` with no prompt. `SUPPORTPILOT_WORKSPACE_TOKEN` still takes precedence. `logout --repository <path>` removes one; `logout` alone removes all for that server. If the server rejects a token, `watch` says so and stops instead of retrying.
 
 ## Run queued work automatically (`watch`)
 
 Instead of one command per run, start a runner in your repository and leave it open:
 
 ```sh
-python -m supportpilot.cli_bridge watch --repository /absolute/path/to/repository
+supportpilot watch --repository /absolute/path/to/repository   # or run it inside the checkout
 ```
 
 - It sends a heartbeat every cycle (default 10 s, `--interval 3..300`), so **Agent runs** shows "Local runner online" with its providers, repository, and permissions.

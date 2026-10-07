@@ -34,7 +34,7 @@ The free configuration is for a demonstration. Review [Render's current free-ser
 
 Replace both placeholder tokens with independently generated private random values before use. Set the array as the environment variable value, then restart the API. Members sharing a workspace ID can assign tickets to one another. Both roles can operate tickets and review drafts; only admins can mutate knowledge. Existing entries without a role default to admin for compatibility. Verify roles when migrating configuration.
 
-Users connect by pasting their individual token into **Workspace token**. Tokens remain in browser memory and clear on reload. Rotation and revocation require changing server configuration and restarting. This pilot has no SSO, invitations, or self-service account administration.
+Users connect by pasting their individual token into **Workspace token**. The session lasts for the browser tab, or across tabs when the user chooses to stay signed in. GitHub sign-up and invitations can issue tokens instead. Rotation and revocation require changing server configuration and restarting. This pilot has no SSO, invitations, or self-service account administration.
 
 ## Live model configuration
 

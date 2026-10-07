@@ -2,22 +2,22 @@
 
 SupportPilot is a standalone support workspace: create tickets inside the application, investigate them against your knowledge library, and record human review. External help-desk intake and customer-message delivery are not connected.
 
-## Connect a workspace
+## Sign in
 
-1. Start the application using the [README setup](../README.md#run-locally), then open `http://127.0.0.1:8000`.
-2. Open your private local `.env`. Find `SUPPORTPILOT_API_TOKENS_JSON` and copy only the value of `token` for your identity, without quotation marks.
-3. Paste it into **Workspace token** and choose **Connect workspace**.
-4. Check the workspace, role, and fixture/live badge. Your token determines your workspace and reviewer identity; entering it does not create an external integration.
+1. Start the application using the [README quick start](../README.md#quick-start), then open `http://127.0.0.1:8000`.
+2. **With GitHub** (when an OAuth App is configured): **Sign up** to choose a repository and receive a workspace token (shown once; copy it), or **Sign in** to verify with GitHub, pick your workspace, and enter its token. Lost it? **Sign in → Forgot your token?** re-authorizes with GitHub and issues a new one.
+3. **With a server-issued token:** **Sign in → Use a server-issued token**, then paste the `token` value from `SUPPORTPILOT_API_TOKENS_JSON` in your private `.env`.
 
-The browser keeps the token in memory. Refreshing the page requires reconnecting. Keep tokens out of screenshots, commits, and support tickets. If connection fails, verify the token matches the running server configuration and restart the server after changing `.env`.
+Reloading keeps you signed in for that tab. Tick **Keep me signed in on this device** to stay signed in across tabs and restarts; **Disconnect** clears it. Keep tokens out of screenshots, commits, and tickets.
 
 ## The dashboard
 
 | View | What it is for |
 | --- | --- |
+| Overview | What needs you: key numbers, the oldest items waiting on a person, the agent pipeline, activity, readiness, and GitHub events |
+| Mission control | Agent pipeline, work queue, review desk with test evidence, PR and CI status, agent reliability, knowledge freshness |
 | Repositories | Connect GitHub, select repositories, sync commits/issues/activity, import docs, and publish linked issues |
-| Agent runs | Queue tasks, start the local CLI bridge, and review recorded results and usage |
-| Overview | Stored ticket totals, current review backlog, seven UTC days of activity, and readiness items |
+| Agent runs | Queue tasks with templates and context packs, watch live logs, and review results, usage, and draft PRs |
 | Tickets | Search and filter tickets; manage context, priority, ownership, status, notes, and investigations |
 | Review queue | Current unreviewed drafts that still match their ticket revision |
 | Knowledge | Inspect sources, test retrieval, and manage workspace documents when signed in as an admin |
@@ -47,14 +47,14 @@ Seed documents are read-only synthetic examples. Workspace documents survive app
 
 ## Understand the active mode
 
-- **Fixture:** deterministic demonstration answers, lexical retrieval, and synthetic RelayDesk account/service/incident records. Use the example tickets to learn the workflow. Adding a document makes it searchable, but fixture routing does not become a general-purpose AI model.
-- **Live:** hosted model generation and embeddings use your workspace documents. Synthetic seed documents are excluded, and account/service/incident tools are disabled until real adapters exist. Add relevant knowledge before investigating. Requests that need disconnected tools should seek more context or escalate.
+- **Fixture:** deterministic demonstration answers, lexical retrieval, and synthetic RelayDesk account/service/incident records. Use the example tickets to learn the workflow. Adding a document makes it searchable, but fixture routing is not a general-purpose model.
+- **Live:** a real model drafts answers from your workspace documents: your logged-in Claude Code, Codex, or Antigravity CLI (no API key), or the Claude or OpenAI API. With GitHub integrations on, investigations check the latest GitHub Actions results and open `incident` issues of your repository. Account lookups are not connected, so account-specific requests escalate. Synthetic data is never used in live mode; import your docs before investigating.
 
-The live adapter and deployment configuration are implemented; real provider quality and a public Render deployment remain unverified. Follow the [release checklist](RELEASE_CHECKLIST.md) and [deployment guide](DEPLOYMENT.md) before using customer data.
+Follow the [release checklist](RELEASE_CHECKLIST.md) and [deployment guide](DEPLOYMENT.md) before using customer data.
 
 ## Engineering workflow
 
-See [GitHub setup](GITHUB_SETUP.md) for OAuth configuration and [Agent bridge](AGENT_BRIDGE.md) for local provider setup. GitHub connection requires an admin and retains workspace-token sign-in. Repository contributors do not automatically become workspace members.
+See [GitHub setup](GITHUB_SETUP.md) for OAuth, webhooks, and invitations, and [Agent bridge](AGENT_BRIDGE.md) for runners. In a checkout, `supportpilot login` (once) and `supportpilot watch` start a runner; queued runs then start automatically. Repository contributors do not automatically become workspace members; admins invite them from **Workspace → Team**.
 
 In **Knowledge**, **Upload file** previews a UTF-8 `.md`, `.markdown`, or `.txt` document before saving. The limit is 30,000 characters/120 KB; indexing and permission checks are the same as manually entered documents. PDFs and binary formats are unsupported.
 
