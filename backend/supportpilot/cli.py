@@ -70,9 +70,14 @@ def table(headers, rows):
         return
     widths = [max(visible(r[i]) for r in [headers, *rows]) for i in range(len(headers) - 1)]
     budget = shutil.get_terminal_size((120, 20)).columns - sum(widths) - 2 * len(widths) - 2
-    print("  " + "  ".join(S.dim(h.ljust(w)) for h, w in zip(headers, widths)) + "  " + S.dim(headers[-1]))
+    print(
+        "  "
+        + "  ".join(S.dim(h.ljust(w)) for h, w in zip(headers, widths, strict=False))
+        + "  "
+        + S.dim(headers[-1])
+    )
     for row in rows:
-        cells = [str(c) + " " * (w - visible(c)) for c, w in zip(row, widths)]
+        cells = [str(c) + " " * (w - visible(c)) for c, w in zip(row, widths, strict=False)]
         last = str(row[-1])
         if len(last) > max(budget, 20):
             last = last[: max(budget, 20) - 1] + "…"
@@ -108,7 +113,9 @@ class Api:
         try:
             response = self.client.request(method, "/api" + path, **kwargs)
         except httpx.HTTPError as exc:
-            raise SystemExit(f"Cannot reach SupportPilot at {self.base} ({type(exc).__name__}).")
+            raise SystemExit(
+                f"Cannot reach SupportPilot at {self.base} ({type(exc).__name__})."
+            ) from None
         if response.status_code in (401, 403) and path == "/session":
             raise SystemExit("Workspace token rejected. Run `supportpilot login` again.")
         if response.status_code >= 400:
@@ -148,13 +155,15 @@ def cmd_status(args):
         return print(json.dumps({"session": me, "pipeline": mission["pipeline"],
                                  "runners": runners, "model": ops["model"]}, indent=2))  # fmt: skip
     p = mission["pipeline"]
+    workspace = me.get("label") or me["workspace_id"]
+    hint = S.dim(" · start one with `supportpilot watch`")
     rows = [
         ("Server", S.green("●") + " " + api.base),
-        ("Workspace", f"{me.get('label') or me['workspace_id']} · {me['role']} as {me['reviewer_id']}"),
+        ("Workspace", f"{workspace} · {me['role']} as {me['reviewer_id']}"),
         ("Mode", f"{ops['mode']} · {ops['model']}"),
         ("Runners", (S.green(f"{len(runners)} online") + " · " + ", ".join(
             f"{r['runner_id']} ({', '.join(r['providers'])})" for r in runners))
-            if runners else S.yellow("none online") + S.dim(" · start one with `supportpilot watch`")),
+            if runners else S.yellow("none online") + hint),
         ("Pipeline", " · ".join([
             f"{p['queued']} queued", S.cyan(f"{p['running']} running"),
             S.yellow(f"{p['awaiting_review']} need review"), S.green(f"{p['accepted']} accepted"),
@@ -226,7 +235,10 @@ def print_investigation(inv, seconds):
             source = cited.get(eid, {})
             print("   ", S.green(str(n)), source.get("title") or eid)
     print()
-    print(" ", S.dim("Approve or reject it in the app's Review queue, or let `supportpilot auto` decide."))
+    print(
+        " ",
+        S.dim("Approve or reject it in the app's Review queue, or let `supportpilot auto` decide."),
+    )
     print()
 
 
@@ -257,7 +269,9 @@ def cmd_auto(args):
     print()
     print(" ", S.bold("SupportPilot autopilot"), S.dim("· Ctrl+C to stop"))
     print("  " + S.dim("workspace ") + (me.get("label") or me["workspace_id"]))
-    print("  " + S.dim("repository") + " " + (remote or S.yellow("no GitHub origin; fixes disabled")))
+    print(
+        "  " + S.dim("repository") + " " + (remote or S.yellow("no GitHub origin; fixes disabled"))
+    )
     steps = ["investigate new tickets"]
     if not args.no_approve:
         steps.append("approve resolved drafts with sources")
@@ -334,7 +348,9 @@ def autopilot_cycle(api, args, remote):
     has_run = {r.get("ticket_id") for r in runs}
     escalated = [
         t for t in tickets
-        if t["latest_outcome"] == "escalate" and t["status"] != "resolved" and t["id"] not in has_run
+        if t["latest_outcome"] == "escalate"
+        and t["status"] != "resolved"
+        and t["id"] not in has_run
     ]  # fmt: skip
     for ticket in escalated[: args.max_per_cycle]:
         run = api(
@@ -352,9 +368,7 @@ def autopilot_cycle(api, args, remote):
 
     # 4. Execute queued runs here, with edits and push enabled on this machine.
     if any(r["status"] == "queued" for r in api("GET", "/agents/runs")["items"]):
-        bridge.watch(
-            args.repository, allow_edits=True, push=True, timeout=args.timeout, once=True
-        )
+        bridge.watch(args.repository, allow_edits=True, push=True, timeout=args.timeout, once=True)
 
     # 5. Open a draft PR for every completed run whose branch was pushed.
     for run in api("GET", "/agents/runs")["items"]:
@@ -426,8 +440,11 @@ def main(argv=None):
     p.add_argument("--timeout", type=int, default=900)
     p.add_argument("--once", action="store_true")
 
-    p = add("run", "execute one queued agent run",
-            lambda a: bridge.run_bridge(a.run_id, a.repository, a.allow_edits, a.timeout, a.push))  # fmt: skip
+    p = add(
+        "run",
+        "execute one queued agent run",
+        lambda a: bridge.run_bridge(a.run_id, a.repository, a.allow_edits, a.timeout, a.push),
+    )
     p.add_argument("run_id")
     p.add_argument("--allow-edits", action="store_true")
     p.add_argument("--push", action="store_true")
