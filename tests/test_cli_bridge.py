@@ -5,7 +5,6 @@ from uuid import uuid4
 
 import httpx
 import pytest
-
 from supportpilot import cli_bridge as bridge
 
 
