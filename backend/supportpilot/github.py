@@ -248,7 +248,8 @@ def build_github_router(database, retrieval, identity, settings):
 
     @router.post("/webhook")
     async def webhook(request: Request):
-        """GitHub webhook: `support` issues become tickets; pushes mark snapshots stale."""
+        """GitHub webhook: `support` issues become tickets; pushes mark snapshots stale; merged
+        run PRs stamp their ticket."""
         secret = settings.github_webhook_secret.get_secret_value()
         if not secret:
             raise HTTPException(404, "GitHub webhooks are not configured")
@@ -266,7 +267,7 @@ def build_github_router(database, retrieval, identity, settings):
             rows = session.scalars(
                 select(GitHubRepositoryRow).where(GitHubRepositoryRow.github_id == github_id)
             ).all()
-            from supportpilot.operations import record_activity  # avoids an import cycle
+            from supportpilot.operations import record_activity, record_merge  # import cycle
 
             summary = describe_event(event, data)
             for row in rows:
@@ -274,6 +275,23 @@ def build_github_router(database, retrieval, identity, settings):
                     record_activity(session, row.workspace_id, "", "github", *summary)
                 if event == "issues" and data.get("action") in ("opened", "labeled", "reopened"):
                     imported += import_issue(session, row.workspace_id, row.id, data["issue"])
+                elif event == "pull_request" and data.get("action") == "closed":
+                    pull = data.get("pull_request") or {}
+                    merged_at = pull.get("merged_at")
+                    if pull.get("merged") and pull.get("html_url"):
+                        # Read-only toward GitHub: we only observe merges, never perform them.
+                        try:
+                            record_merge(
+                                session,
+                                row.workspace_id,
+                                pull["html_url"],
+                                datetime.fromisoformat(merged_at)
+                                if merged_at
+                                else datetime.now(UTC),
+                                row.workspace_id in settings.resolve_on_merge_workspaces,
+                            )
+                        except HTTPException:
+                            pass  # Ticket deleted or mid-edit; the inbox still shows the merge.
                 elif event == "push":
                     row.snapshot = {
                         **row.snapshot,

@@ -346,7 +346,109 @@
   border-color: var(--danger-border);
   color: var(--danger-soft) !important;
 }
+.flight-board {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.flight-lane {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.6fr) repeat(8, minmax(64px, 1fr));
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--n-4);
+  border-radius: 10px;
+  background: var(--n-2);
+}
+.flight-lane.merged {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+.flight-lane.confirmed {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+.flight-ticket {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-align: left;
+}
+.flight-ticket strong,
+.flight-ticket span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.flight-ticket span,
+.flight-step small,
+.flight-step a {
+  color: var(--n-9);
+  font-size: 11px;
+}
+.merged .flight-ticket span {
+  color: var(--warn);
+}
+.confirmed .flight-ticket span {
+  color: var(--accent);
+}
+.flight-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.flight-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--n-5);
+}
+.flight-step.done .flight-dot {
+  background: var(--info);
+}
+.merged .flight-step.done .flight-dot {
+  background: var(--warn);
+}
+.confirmed .flight-step.done .flight-dot {
+  background: var(--accent);
+}
+.flight-step.live .flight-dot {
+  background: var(--live);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--live) 60%, transparent);
+  animation: mission-pulse 1.6s ease-out infinite;
+}
+.flight-log {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  z-index: 10;
+  display: none;
+  width: 360px;
+  max-width: 80vw;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  transform: translateX(-50%);
+  border: 1px solid var(--n-5);
+  border-radius: 8px;
+  background: var(--n-1);
+  color: var(--n-11);
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+.flight-step:hover .flight-log,
+.flight-step:focus .flight-log {
+  display: block;
+}
 @media (max-width: 1100px) {
+  /* Narrow screens scroll the board sideways (the log popover may clip there). */
+  .flight-board {
+    overflow-x: auto;
+  }
+  .flight-lane {
+    min-width: 760px;
+  }
   .mission-grid {
     grid-template-columns: 1fr;
   }
@@ -368,7 +470,8 @@
 }
 .state-current,
 .state-accepted,
-.state-approved {
+.state-approved,
+.state-auto {
   border-color: var(--accent-border);
   background: var(--accent-bg);
   color: var(--accent-soft);

@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+
 from supportpilot import cli_bridge as bridge
 
 
@@ -233,7 +234,7 @@ def test_watch_runs_eligible_queue_items_once(tmp_path, monkeypatch):
     monkeypatch.setattr(
         bridge,
         "run_bridge",
-        lambda run_id, root, edits, timeout, push: started.append((run_id, edits, push)),
+        lambda run_id, root, edits, timeout, push, **kw: started.append((run_id, edits, push)),
     )
     assert bridge.watch(repository, once=True) == 0
     # Read-only runner: other repositories and edit-requiring runs are skipped.
@@ -320,3 +321,131 @@ def test_login_saves_token_privately_and_watch_finds_it(tmp_path, monkeypatch, c
     assert bridge.login(other) == 1  # Token for team/app refused for team/site.
     bridge.logout(repository)
     assert bridge.stored_tokens("http://127.0.0.1:8000") == {}
+
+
+def red_green_run(tmp_path, monkeypatch, agent):
+    """A codex fix run on a ticket, with a stub agent; returns the submitted report."""
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    for args in (["init"], ["config", "user.name", "T"], ["config", "user.email", "t@e.com"]):
+        bridge.git(repository, *args)
+    (repository / "app.py").write_text("def add(a, b):\n    return a - b\n")
+    bridge.git(repository, "add", ".")
+    bridge.git(repository, "commit", "-m", "Initial")
+    proposal = {"id": str(uuid4()), "status": "queued", "provider": "codex",
+                "task": "Fix the ticket", "ticket_context": {"subject": "add() bug"}}  # fmt: skip
+    reports = []
+
+    def handler(request):
+        if request.method == "GET":
+            return httpx.Response(200, json=proposal)
+        if request.url.path.endswith("/claim"):
+            return httpx.Response(200, json={**proposal, "lease": "x" * 40})
+        if request.url.path.endswith("/complete"):
+            reports.append(json.loads(request.content))
+        return httpx.Response(200, json={"status": "completed", "lines": 1})
+
+    real_client = httpx.Client
+    monkeypatch.setenv("SUPPORTPILOT_WORKSPACE_TOKEN", "token")
+    monkeypatch.setattr(
+        bridge.httpx,
+        "Client",
+        lambda **kw: real_client(**kw, transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setattr(bridge.shutil, "which", lambda name: "/fake/" + name)
+    monkeypatch.setattr(bridge.tempfile, "mkdtemp", lambda **kw: str(tmp_path / "run"))
+    real_execute = bridge.execute
+
+    def fake_execute(args, task, cwd, timeout, on_output=None, env=None):
+        if args[:2] == ["codex", "sandbox"]:  # The runner's test command, in the agent sandbox.
+            assert set(env) <= {"PATH", "TMPDIR", "LANG", "HOME"} and "-P" in args
+            return real_execute(args[args.index("--") + 1 :], task, cwd, timeout)
+        agent(task, cwd)
+        done = {"type": "item.completed", "item": {"type": "agent_message", "text": "Done"}}
+        return 0, json.dumps(done) + '\n{"type":"turn.completed"}'
+
+    monkeypatch.setattr(bridge, "execute", fake_execute)
+    # The test command comes from the checkout's .supportpilot.toml, never from the server.
+    (repository / ".supportpilot.toml").write_text(
+        f'[tests]\ncommand = "{sys.executable} -m pytest -q -p no:cacheprovider"\n'
+    )
+    bridge.run_bridge(proposal["id"], repository, allow_edits=True)
+    return reports[0]
+
+
+def test_red_before_green_fix_run(tmp_path, monkeypatch):
+    def agent(task, cwd):
+        if task.startswith("Phase 1"):
+            (cwd / "tests").mkdir()
+            (cwd / "tests" / "test_add.py").write_text(
+                "from app import add\n\ndef test_add():\n    assert add(2, 2) == 4\n"
+            )
+        else:
+            assert "Phase 2 of 2" in task
+            (cwd / "app.py").write_text("def add(a, b):\n    return a + b\n")
+
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")  # Same-size edits within a second.
+    report = red_green_run(tmp_path, monkeypatch, agent)
+    assert report["error"] is None and report["exit_code"] == 0, report["result"]
+    tests = [a for a in report["artifacts"] if a["kind"] == "test_report"]
+    assert [a["label"] for a in tests] == ["baseline (HEAD)", "repro (red)", "fix (green)"]
+    assert "1 failed" in tests[1]["detail"] and "1 passed" in tests[2]["detail"]
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "git add -A",  # Staged edits are invisible to a plain `git diff`.
+        "git commit -qam fix",
+        "git rm -qf tests/test_add.py",
+    ],
+)
+def test_fix_phase_cannot_rewrite_the_reproduction(tmp_path, monkeypatch, tamper):
+    def agent(task, cwd):
+        if task.startswith("Phase 1"):
+            (cwd / "tests").mkdir()
+            (cwd / "tests" / "test_add.py").write_text(
+                "from app import add\n\ndef test_add():\n    assert add(2, 2) == 4\n"
+            )
+        else:
+            (cwd / "tests" / "test_add.py").write_text("def test_add():\n    assert True\n")
+            subprocess.run(tamper.split(), cwd=cwd, check=True)
+
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
+    report = red_green_run(tmp_path, monkeypatch, agent)
+    assert report["error"] == "Fix phase edited tests or test config: tests/test_add.py"
+
+
+def test_fix_phase_cannot_deselect_the_reproduction(tmp_path, monkeypatch):
+    def agent(task, cwd):
+        if task.startswith("Phase 1"):
+            (cwd / "tests").mkdir()
+            (cwd / "tests" / "test_add.py").write_text(
+                "from app import add\n\ndef test_add():\n    assert add(2, 2) == 4\n"
+            )
+        else:  # A root conftest.py is not a test path, but it can hide the failing test.
+            (cwd / "conftest.py").write_text(
+                "def pytest_collection_modifyitems(items):\n    items.clear()\n"
+            )
+
+    report = red_green_run(tmp_path, monkeypatch, agent)
+    assert report["error"] == "Fix phase edited tests or test config: conftest.py"
+
+
+def test_a_test_that_already_passes_is_not_a_reproduction(tmp_path, monkeypatch):
+    def agent(task, cwd):
+        (cwd / "tests").mkdir(exist_ok=True)
+        (cwd / "tests" / "test_ok.py").write_text("def test_ok():\n    assert True\n")
+
+    report = red_green_run(tmp_path, monkeypatch, agent)
+    assert report["error"].startswith("not_reproduced") and report["exit_code"] == 1
+    assert "branch" in [a["kind"] for a in report["artifacts"]]
+
+
+def test_reproduction_phase_may_only_touch_tests(tmp_path, monkeypatch):
+    report = red_green_run(
+        tmp_path, monkeypatch, lambda task, cwd: (cwd / "app.py").write_text("x = 1\n")
+    )
+    assert report["error"] == "not_reproduced: phase 1 changed non-test files: app.py"
+    assert bridge.is_test_path("src/__tests__/a.ts") and bridge.is_test_path("pkg/x_test.go")
+    assert not bridge.is_test_path("src/testing.py")

@@ -605,6 +605,7 @@ export default function App() {
             draft_revision: investigation.draft_revision,
             decision,
             note: reviewNote,
+            reviewer_kind: "human",
           }),
         },
       );
@@ -1488,7 +1489,9 @@ export default function App() {
                               <CheckCheck size={20} />
                               <strong>
                                 {reviews[0].decision === "approve"
-                                  ? "Draft approved"
+                                  ? reviews[0].reviewer_kind === "policy"
+                                    ? "Draft approved by policy"
+                                    : "Draft approved"
                                   : "Draft rejected"}
                               </strong>
                               <p>

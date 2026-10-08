@@ -98,6 +98,7 @@ class Artifact(BaseModel):
     kind: Literal["branch", "pull_request", "test_report", "patch"]
     label: str = Field(min_length=1, max_length=300)
     url: str | None = Field(default=None, max_length=2000)
+    detail: str | None = Field(default=None, max_length=4000)  # e.g. test output tail
 
     @field_validator("url")
     @classmethod
@@ -362,7 +363,14 @@ def build_agent_router(database, identity, settings):
                 "usage": body.usage.model_dump(exclude_none=True),
                 "exit_code": body.exit_code,
                 "error": redact(body.error) if body.error else None,
-                "artifacts": [{**a.model_dump(), "label": redact(a.label)} for a in body.artifacts],
+                "artifacts": [
+                    {
+                        **a.model_dump(),
+                        "label": redact(a.label),
+                        "detail": a.detail and redact(a.detail),
+                    }
+                    for a in body.artifacts
+                ],
             }
             changed = session.execute(
                 update(AgentRunRow)

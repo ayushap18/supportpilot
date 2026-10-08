@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     frontend_dir: Path = ROOT / "frontend/dist"
     max_rounds: int = 3
     max_tool_calls: int = 5
+    # Earned autonomy: workspaces (opt-in, none by default) where autopilot approves only
+    # kinds of drafts with at least this many human reviews and this Wilson lower bound.
+    autonomy_workspaces: list[str] = []
+    autonomy_min_n: int = Field(default=20, ge=1)
+    autonomy_min_lb: float = Field(default=0.9, gt=0, le=1)
+    # Workspaces (opt-in, none by default) where a merged fix PR also resolves its ticket.
+    resolve_on_merge_workspaces: list[str] = []
     # Whole-investigation budget. Local CLI providers need more than API calls (~10 s per step).
     timeout_seconds: float = Field(default=45, gt=0, le=600)
     max_output_tokens: int = Field(default=1800, ge=128, le=1800)

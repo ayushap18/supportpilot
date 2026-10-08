@@ -60,6 +60,8 @@ class Ticket(TicketCreate):
     assignee: str | None = None
     revision: int = 1
     updated_at: datetime | None = None
+    # Set by the GitHub webhook when the run's PR merges; awaiting customer confirmation.
+    fix_merged_at: datetime | None = None
 
 
 class Evidence(Contract):
@@ -146,6 +148,9 @@ class Investigation(Contract):
     usage: Usage = Field(default_factory=Usage)
     latency_ms: float = 0
     mode: Literal["fixture", "live"] = "fixture"
+    provider: str | None = None  # Live model provider; part of the autonomy bucket.
+    # What earned autonomy would do with this draft; scored against the human verdict.
+    shadow_decision: Literal["approve", "hold"] | None = None
     error: str | None = None
 
 
@@ -153,6 +158,10 @@ class ReviewCreate(Contract):
     draft_revision: int = Field(ge=1)
     decision: Literal["approve", "reject"]
     note: str = Field(default="", max_length=1000)
+    # Required, so a client that omits it is never counted as a human vote. ponytail:
+    # self-declared, since the autopilot shares the human's token; a bot token would let the
+    # server set it.
+    reviewer_kind: Literal["human", "policy"]
 
 
 class Review(ReviewCreate):

@@ -35,6 +35,8 @@ def test_autopilot_cycle_investigates_approves_fixes_and_opens_prs(monkeypatch):
         calls.append((method, path, kwargs))
         if path == "/queue":
             return {"items": tickets}
+        if path == "/policy":
+            return {"enabled": False, "buckets": []}  # Autonomy off: the old rule applies.
         if path.startswith("/investigations/inv-"):
             outcome = "resolved" if path.endswith("inv-b") else "escalate"
             ids = ["w:doc:1:0"] if outcome == "resolved" else []
@@ -55,7 +57,7 @@ def test_autopilot_cycle_investigates_approves_fixes_and_opens_prs(monkeypatch):
     watched = []
     monkeypatch.setattr(cli.bridge, "watch", lambda repo, **k: watched.append((repo, k)))
     args = SimpleNamespace(no_approve=False, no_fix=False, agent="codex", max_per_cycle=3,
-                           timeout=900, repository="/repo")  # fmt: skip
+                           timeout=900, repository="/repo", test_command="pytest -q")  # fmt: skip
     cli.autopilot_cycle(api, args, "team/app")
 
     investigated = [c for c in calls if c[1] == "/tickets/aaa111/investigations"]
@@ -67,9 +69,39 @@ def test_autopilot_cycle_investigates_approves_fixes_and_opens_prs(monkeypatch):
     assert patch[1] == "/tickets/bbb222" and patch[2]["json"]["status"] == "resolved"
     fix = next(c for c in calls if c[0] == "POST" and c[1] == "/agents/runs")
     assert fix[2]["json"]["ticket_id"] == "ccc333" and fix[2]["json"]["allow_edits"] is True
-    assert watched == [("/repo", {"allow_edits": True, "push": True, "timeout": 900, "once": True})]
+    assert watched == [("/repo", {"allow_edits": True, "push": True, "timeout": 900, "once": True,
+                                   "tests": "pytest -q"})]  # fmt: skip
     assert ("POST", "/github/agent-runs/run-pushed/pull-request", {}) in calls
 
     calls.clear()
     cli.autopilot_cycle(api, args, "team/app")  # A second cycle never queues a duplicate fix.
     assert not [c for c in calls if c[0] == "POST" and c[1] == "/agents/runs"]
+
+
+def test_autopilot_with_earned_autonomy_approves_only_auto_buckets():
+    escalate = {"id": "inv-c", "draft_revision": 1, "mode": "fixture", "trace": [],
+                "draft": {"outcome": "escalate", "evidence_ids": []}}  # fmt: skip
+    resolved = {**escalate, "id": "inv-b", "draft": {"outcome": "resolved", "evidence_ids": ["d"]}}
+    tickets = [
+        {"id": t, "status": "open", "investigation_state": "awaiting_review", "revision": 1,
+         "review_status": "pending", "latest_investigation_id": "inv-" + t}
+        for t in ("b", "c")
+    ]  # fmt: skip
+    calls = []
+
+    def api(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        if path == "/queue":
+            return {"items": tickets}
+        if path == "/policy":  # Escalations earned AUTO; resolved drafts are still in shadow.
+            buckets = [{"key": cli.bucket(escalate), "state": "auto"},
+                       {"key": cli.bucket(resolved), "state": "shadow"}]  # fmt: skip
+            return {"enabled": True, "buckets": buckets}
+        return {"inv-b": resolved, "inv-c": escalate}.get(path.rsplit("/", 1)[1], {})
+
+    args = SimpleNamespace(no_approve=False, no_fix=True, max_per_cycle=3)
+    cli.autopilot_cycle(api, args, None)
+    reviews = [c for c in calls if c[1].endswith("/reviews")]
+    assert [c[1] for c in reviews] == ["/investigations/inv-c/reviews"]
+    assert reviews[0][2]["json"]["reviewer_kind"] == "policy"
+    assert not [c for c in calls if c[0] == "PATCH"]  # An escalation never resolves the ticket.

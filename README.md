@@ -11,7 +11,7 @@
 - **No API keys required.** Live investigations can run through your logged-in Claude Code, Codex, or Antigravity CLI. The Claude API and OpenAI work too, if you prefer keys.
 - **Code stays on your machine.** The server never runs repository code. A runner you start locally does the agent work in your own checkout.
 - **Every answer is checkable.** Drafts cite the exact documents and tool results they used, with a step-by-step trace.
-- **A person decides, or autopilot within limits.** Drafts and agent results wait for review unless you run `supportpilot auto`, which approves only cited resolutions. Nothing is sent to customers or merged automatically.
+- **A person decides, or autopilot within limits.** Drafts and agent results wait for review unless you run `supportpilot auto`, which approves only cited resolutions, or, with earned autonomy on, only the kinds of drafts your reviewers have agreed with often enough. Nothing is sent to customers or merged automatically.
 
 ## What it does
 
@@ -22,7 +22,8 @@
 | **Knowledge** | Upload Markdown or import a repository's README and `docs/`. Versioned, searchable, archivable. |
 | **Repositories** | Sync commits, issues, contributors, docs, and files from repositories you choose; Actions status is read live for investigations and PRs. Issues labelled `support` become tickets; a signed webhook streams pushes, PRs, issues, and failed checks. |
 | **Agent runs** | Queue a task for Claude Code, Codex, or Antigravity, with templates and a context pack of knowledge documents. A local runner picks it up, streams a live log, and reports results and token usage. Edit runs can push a branch and open a **draft** PR. |
-| **Mission control** | The agent pipeline from queued to accepted, a work queue ordered by age, a review desk with test evidence and customer confirmation, PR review and CI status, agent reliability, and knowledge freshness. |
+| **Mission control** | A flight board with one lane per ticket from complaint to merged fix, the autonomy ladder, the agent pipeline from queued to accepted, a work queue ordered by age, a review desk with red/green test evidence and customer confirmation, PR review and CI status, agent reliability, and knowledge freshness. |
+| **Evals** | `supportpilot evals --from-reviews` replays every human-reviewed ticket with evidence and tool results frozen, and fails when a change lowers agreement with your reviewers. |
 | **Team** | Sign up and sign in with GitHub. Workspaces are tied to a repository you can push to. Admins invite teammates by GitHub username. |
 
 ![Overview dashboard](docs/screenshots/overview.png)
@@ -105,7 +106,7 @@ supportpilot login                 # once: saves this workspace's token (owner-o
 supportpilot watch --allow-edits   # leave running; queued runs start automatically
 ```
 
-Or let it run unattended: `supportpilot auto` investigates new tickets, approves cited *resolved* drafts, sends escalations to Codex for a fix, and opens draft PRs. `supportpilot status`, `tickets`, `investigate`, and `runs` cover the rest from the terminal.
+Or let it run unattended: `supportpilot auto` investigates new tickets, approves cited *resolved* drafts (or, with earned autonomy on, only kinds of drafts humans have promoted to AUTO), sends escalations to Codex for a fix that must first reproduce the bug with a failing test and then make it pass, and opens draft PRs. `supportpilot status`, `tickets`, `investigate`, and `runs` cover the rest from the terminal.
 
 Drop `--allow-edits` for read-only analysis. Add `--push` so edit runs push their branch and you can open a draft PR. Claude Code runs are analysis-only. Details: [Agent bridge](docs/AGENT_BRIDGE.md).
 

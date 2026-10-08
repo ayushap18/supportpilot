@@ -18,6 +18,10 @@ python -m evals.run --split held-out --allow-held-out --repeat 3 --output evals/
 
 After using held-out failures to guide implementation, treat that set as a regression set and create a new held-out dataset for future quality claims.
 
+## Replay evals from human reviews
+
+`supportpilot evals --from-reviews --fail-below last` turns every human approve/reject in the local database into a case (`evals/from_reviews.py`, redacted), replays it with the stored evidence and recorded tool results frozen, and reports `approval_agreement`: an approved outcome must be reproduced, a rejected one must not. Results go to `evals/runs/reviews/`; `--fail-below last` exits 1 when agreement drops below the previous run, and lists approved tickets the change flips. Autopilot approvals are excluded. In live mode each case is one model call, so use `--limit`.
+
 ## Live evaluation
 
 Set the OpenAI key and dated model/embedding pricing in your private environment. Run with `--mode live`, `--limit`, and `--max-spend-usd`. The runner reserves a conservative bound for all planned model rounds, potential retries, and embeddings before making requests. If the bound exceeds the cap, it refuses the run.

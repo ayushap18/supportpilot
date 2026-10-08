@@ -11,6 +11,7 @@ from sqlalchemy import func, select, update
 
 from supportpilot.accounts import members
 from supportpilot.agent_storage import AgentRunRow
+from supportpilot.policy import policy as autonomy_policy
 from supportpilot.redaction import redact
 from supportpilot.retrieval import ChunkRow
 from supportpilot.schemas import Note, NoteCreate, Ticket, TicketPatch
@@ -31,6 +32,84 @@ def record_activity(session, workspace_id, ticket_id, kind, title, detail):
             id=payload["id"], workspace_id=workspace_id, ticket_id=ticket_id, payload=payload
         )
     )
+
+
+def revise_ticket(session, workspace_id, ticket_id, changes, expected_revision, actor):
+    """Apply changes under the ticket's revision lock; the caller commits.
+
+    expected_revision None means "whatever is current" (server-side writers like the webhook).
+    """
+    row = session.scalar(
+        select(TicketRow)
+        .where(TicketRow.id == ticket_id, TicketRow.workspace_id == workspace_id)
+        .with_for_update()
+    )
+    if row is None:
+        raise HTTPException(404, "Ticket not found")
+    current = Ticket.model_validate(row.payload)
+    expected = current.revision if expected_revision is None else expected_revision
+    if current.revision != expected:
+        raise HTTPException(409, "Ticket changed; refresh before saving")
+    changes = {key: value for key, value in changes.items() if getattr(current, key) != value}
+    if not changes:
+        return current
+    # Server metadata (a merge stamp) must not make a pending draft stale, so it keeps the revision.
+    bump = 0 if set(changes) <= {"fix_merged_at"} else 1
+    revised = current.model_copy(
+        update={**changes, "revision": current.revision + bump, "updated_at": datetime.now(UTC)}
+    )
+    result = session.execute(
+        update(TicketRow)
+        .where(
+            TicketRow.id == ticket_id,
+            TicketRow.workspace_id == workspace_id,
+            func.coalesce(TicketRow.payload["revision"].as_integer(), 1) == expected,
+        )
+        .values(payload=revised.model_dump(mode="json"))
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        raise HTTPException(409, "Ticket changed; refresh before saving")
+    record_activity(
+        session,
+        workspace_id,
+        ticket_id,
+        "ticket_updated",
+        "Ticket updated",
+        f"{actor} changed {', '.join(sorted(changes))}",
+    )
+    return revised
+
+
+def record_merge(session, workspace_id, pr_url, merged_at, resolve):
+    """A run's PR merged: stamp fix_merged_at on its ticket. Never messages the customer.
+
+    The ticket is resolved only when the workspace opted in (resolve); otherwise a human does.
+    """
+    # ponytail: scans the workspace's runs; index PR URLs if merges get frequent.
+    run = next(
+        (
+            r.payload
+            for r in session.scalars(
+                select(AgentRunRow).where(AgentRunRow.workspace_id == workspace_id)
+            )
+            if any(
+                a.get("kind") == "pull_request" and a.get("url") == pr_url
+                for a in r.payload.get("artifacts") or []
+            )
+        ),
+        None,
+    )
+    if run is None or not run.get("ticket_id"):
+        return False
+    changes = {"fix_merged_at": merged_at}
+    if resolve:
+        changes["status"] = "resolved"
+    revise_ticket(session, workspace_id, run["ticket_id"], changes, None, "github")
+    record_activity(
+        session, workspace_id, run["ticket_id"], "pr_merged", "Fix merged", pr_url[:300]
+    )
+    return True
 
 
 def queue_items(session, workspace_id):
@@ -139,42 +218,13 @@ def build_operations_router(database, identity, settings):
             if key in changes:
                 changes[key] = redact(changes[key])
         with database.session() as session:
-            row = require_ticket(session, ticket_id, caller)
-            current = Ticket.model_validate(row.payload)
-            if current.revision != payload.expected_revision:
-                raise HTTPException(409, "Ticket changed; refresh before saving")
-            changes = {
-                key: value for key, value in changes.items() if getattr(current, key) != value
-            }
-            if not changes:
-                return current
-            revised = current.model_copy(
-                update={
-                    **changes,
-                    "revision": current.revision + 1,
-                    "updated_at": datetime.now(UTC),
-                }
-            )
-            result = session.execute(
-                update(TicketRow)
-                .where(
-                    TicketRow.id == ticket_id,
-                    TicketRow.workspace_id == caller["workspace_id"],
-                    func.coalesce(TicketRow.payload["revision"].as_integer(), 1)
-                    == payload.expected_revision,
-                )
-                .values(payload=revised.model_dump(mode="json"))
-                .execution_options(synchronize_session=False)
-            )
-            if result.rowcount != 1:
-                raise HTTPException(409, "Ticket changed; refresh before saving")
-            record_activity(
+            revised = revise_ticket(
                 session,
                 caller["workspace_id"],
                 ticket_id,
-                "ticket_updated",
-                "Ticket updated",
-                f"{caller['reviewer_id']} changed {', '.join(sorted(changes))}",
+                changes,
+                payload.expected_revision,
+                caller["reviewer_id"],
             )
             session.commit()
             return revised
@@ -256,6 +306,11 @@ def build_operations_router(database, identity, settings):
             page=page,
             page_size=page_size,
         )
+
+    @router.get("/policy")
+    def policy(caller: dict = Depends(identity)):
+        with database.session() as session:
+            return autonomy_policy(session, caller["workspace_id"], settings)
 
     @router.get("/operations")
     def operations(caller: dict = Depends(identity)):
@@ -350,7 +405,8 @@ def build_operations_router(database, identity, settings):
                     id="review-" + review["id"],
                     kind="review",
                     title="Draft " + decision,
-                    detail=review["reviewer_id"],
+                    detail=review["reviewer_id"]
+                    + (" (policy)" if review.get("reviewer_kind") == "policy" else ""),
                     ticket_id=lookup.get(review["investigation_id"], {}).get("ticket_id"),
                     created_at=review["created_at"],
                 )

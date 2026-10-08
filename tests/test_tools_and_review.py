@@ -76,7 +76,12 @@ def test_injection_and_secret_redaction(client, headers, ticket_input):
 def test_human_review_stale_duplicates_and_access(client, headers, ticket_input):
     result = run_ticket(client, headers, ticket_input)
     path = "/api/investigations/" + result["id"] + "/reviews"
-    payload = {"draft_revision": 1, "decision": "approve", "note": "Checked the sources"}
+    payload = {
+        "draft_revision": 1,
+        "decision": "approve",
+        "reviewer_kind": "human",
+        "note": "Checked the sources",
+    }
     assert (
         client.post(path, headers=headers, json={**payload, "draft_revision": 2}).status_code == 409
     )

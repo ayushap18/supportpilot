@@ -10,6 +10,7 @@ from supportpilot.agent_storage import AgentRunRow
 from supportpilot.github_storage import GitHubRepositoryRow
 from supportpilot.knowledge_storage import KnowledgeDocumentRow
 from supportpilot.operations import queue_items
+from supportpilot.policy import policy
 from supportpilot.storage import ActivityRow, InvestigationRow
 
 STUCK_AFTER = timedelta(minutes=15)
@@ -21,7 +22,51 @@ def stage(run):
     return (run.get("review") or {}).get("decision") or "awaiting_review"
 
 
-def build_mission_router(database, identity):
+LANE_STEPS = ("created", "investigated", "escalated", "claimed", "red", "green", "pr", "merged")
+
+
+def lane(ticket, run):
+    """One ticket's path from complaint to merged fix, from stored data only."""
+    reached = {"created"}
+    if ticket["latest_investigation_id"]:
+        reached.add("investigated")
+    if ticket["latest_outcome"] == "escalate" or run:
+        reached.add("escalated")
+    artifacts = (run or {}).get("artifacts") or []
+    reports = [a.get("label", "") for a in artifacts if a.get("kind") == "test_report"]
+    pr = next((a.get("url") for a in artifacts if a.get("kind") == "pull_request"), None)
+    if run and run.get("started_at"):
+        reached.add("claimed")
+    # The bridge stores the red report even when the test already passed (not_reproduced).
+    if any("(red)" in label for label in reports) and not (
+        (run.get("error") or "").startswith("not_reproduced")
+    ):
+        reached.add("red")
+    if run and run["status"] == "completed" and any("(green)" in label for label in reports):
+        reached.add("green")
+    if pr:
+        reached.add("pr")
+    if ticket.get("fix_merged_at"):
+        reached.add("merged")
+    return dict(
+        ticket_id=ticket["id"],
+        subject=ticket["subject"],
+        status=ticket["status"],
+        steps=[step for step in LANE_STEPS if step in reached],
+        run_id=run and run["id"],
+        run_status=run and run["status"],
+        pr_url=pr,
+        fix_merged_at=ticket.get("fix_merged_at"),
+        # A merge alone never closes the loop: only the customer's confirmation turns it green.
+        customer_confirmed=bool(
+            ticket.get("fix_merged_at")
+            and ((run or {}).get("review") or {}).get("customer_confirmed")
+        ),
+        log_tail=((run or {}).get("log") or [])[-8:],
+    )
+
+
+def build_mission_router(database, identity, settings):
     router = APIRouter(prefix="/api", tags=["mission"])
 
     @router.get("/mission")
@@ -54,6 +99,7 @@ def build_mission_router(database, identity):
                     select(GitHubRepositoryRow).where(GitHubRepositoryRow.workspace_id == workspace)
                 )
             }
+            autonomy = policy(session, workspace, settings)
             # ponytail: last 200 investigations by insertion; add an index-backed query at scale.
             investigations = [
                 r.payload
@@ -175,7 +221,14 @@ def build_mission_router(database, identity):
                     )
             knowledge.append(item)
 
+        latest_run = {}
+        for run in sorted(runs, key=lambda r: r["created_at"]):
+            if run.get("ticket_id"):
+                latest_run[run["ticket_id"]] = run
+
         return dict(
+            # Latest 50 tickets, newest activity first; keeps the payload well under the caps.
+            lanes=[lane(ticket, latest_run.get(ticket["id"])) for ticket in tickets[:50]],
             pipeline={
                 key: stages[key]
                 for key in (
@@ -203,10 +256,11 @@ def build_mission_router(database, identity):
                 by_provider={k: dict(v) for k, v in providers.items()},
             ),
             inbox=sorted(
-                (a for a in activity if a.get("kind") == "github"),
+                (a for a in activity if a.get("kind") in ("github", "autonomy_demoted")),
                 key=lambda a: a["created_at"],
                 reverse=True,
             )[:30],
+            autonomy=autonomy,
             knowledge=sorted(
                 knowledge,
                 key=lambda d: (

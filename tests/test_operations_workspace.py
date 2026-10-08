@@ -119,7 +119,7 @@ def test_latest_investigation_and_stale_review(client, headers, ticket_input):
         client.post(
             "/api/investigations/" + inv["id"] + "/reviews",
             headers=headers,
-            json={"draft_revision": 1, "decision": "approve"},
+            json={"draft_revision": 1, "decision": "approve", "reviewer_kind": "human"},
         ).status_code
         == 409
     )
@@ -131,7 +131,7 @@ def test_latest_investigation_and_stale_review(client, headers, ticket_input):
         client.post(
             "/api/investigations/" + latest["id"] + "/reviews",
             headers=headers,
-            json={"draft_revision": 1, "decision": "approve"},
+            json={"draft_revision": 1, "decision": "approve", "reviewer_kind": "human"},
         ).status_code
         == 201
     )
@@ -168,7 +168,7 @@ def test_mid_investigation_edit_cannot_approve_old_context(
         client.post(
             "/api/investigations/" + inv["id"] + "/reviews",
             headers=headers,
-            json={"draft_revision": 1, "decision": "approve"},
+            json={"draft_revision": 1, "decision": "approve", "reviewer_kind": "human"},
         ).status_code
         == 409
     )
@@ -206,7 +206,7 @@ def test_review_decision_survives_later_ticket_edits(client, headers, ticket_inp
     client.post(
         f"/api/investigations/{inv['id']}/reviews",
         headers=headers,
-        json={"draft_revision": 1, "decision": "approve"},
+        json={"draft_revision": 1, "decision": "approve", "reviewer_kind": "human"},
     )
     client.patch(
         "/api/tickets/" + ticket["id"],

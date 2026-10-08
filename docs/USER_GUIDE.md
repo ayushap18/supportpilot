@@ -15,7 +15,7 @@ Reloading keeps you signed in for that tab. Tick **Keep me signed in on this dev
 | View | What it is for |
 | --- | --- |
 | Overview | What needs you: key numbers, the oldest items waiting on a person, the agent pipeline, activity, readiness, and GitHub events |
-| Mission control | Agent pipeline, work queue, review desk with test evidence, PR and CI status, agent reliability, knowledge freshness |
+| Mission control | Flight board, autonomy ladder, agent pipeline, work queue, review desk with test evidence, PR and CI status, agent reliability, knowledge freshness |
 | Repositories | Connect GitHub, select repositories, sync commits/issues/activity, import docs, and publish linked issues |
 | Agent runs | Queue tasks with templates and context packs, watch live logs, and review results, usage, and draft PRs |
 | Tickets | Search and filter tickets; manage context, priority, ownership, status, notes, and investigations |
@@ -36,6 +36,12 @@ Counts come from stored workspace data. A successful draft outcome is a proposed
 6. Explicitly set the ticket to **resolved** once your team considers the customer issue complete. Change its status to reopen it when needed.
 
 A draft can propose a resolution, request missing information, or escalate. Collect missing information into the ticket and run a fresh investigation. If someone edits the ticket while you are working, stale saves fail with a conflict; refresh and apply your changes to the current revision. Any ticket edit also makes an earlier draft stale, including a priority or status change. Investigate again before reviewing it.
+
+## Watch the flight board and autonomy ladder
+
+**Mission control → Flight board** shows one lane for each of the latest 50 tickets: created, investigated, escalated, runner claimed, red (a failing test reproduces the bug), green (the fix passes it), PR opened, merged. It refreshes every 5 seconds; hover or focus a running step for its live log. When the fix PR merges, the lane turns amber, *Fix merged, awaiting customer confirmation*. A merge never messages the customer and never resolves the ticket unless an admin opted the workspace in (`SUPPORTPILOT_RESOLVE_ON_MERGE_WORKSPACES`). The lane turns green only when **Customer confirmed the fix** is checked in the review desk.
+
+**Autonomy ladder** lists each kind of draft (outcome, citations, tool statuses, mode) with how often reviewers agreed and the lower bound of that score. A kind is **auto** once it has enough human reviews at a high enough lower bound; otherwise it is **shadow**: the app only records what it would have done. A single rejection of a kind that was auto drops it back to shadow and posts *Autonomy demoted* to the inbox. Only your approve/reject decisions count; autopilot approvals are marked *(policy)* and you can overrule them. Autonomy is off by default and only affects `supportpilot auto`; see [Agent bridge](AGENT_BRIDGE.md#earned-autonomy).
 
 ## Maintain useful knowledge
 

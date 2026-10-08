@@ -58,6 +58,7 @@ test("production API isolates workspaces, enforces knowledge roles, and rejects 
         draft_revision: investigation.draft_revision,
         decision: "approve",
         note: "Must reject stale context",
+        reviewer_kind: "human",
       },
     },
   );

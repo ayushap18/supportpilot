@@ -18,10 +18,11 @@ from sqlalchemy import delete, select
 from supportpilot.github import build_github_router
 from supportpilot.github_storage import GitHubConnectionRow, GitHubIssueRow, GitHubOAuthRow
 from supportpilot.knowledge_storage import KnowledgeDocumentRow
-from supportpilot.mission import build_mission_router
+from supportpilot.mission import build_mission_router, lane
+from supportpilot.operations import queue_items
 from supportpilot.provider import Provider
 from supportpilot.retrieval import ChunkRow, Retrieval
-from supportpilot.storage import Base, Database, TicketRow
+from supportpilot.storage import Base, Database, InvestigationRow, TicketRow
 
 WORKSPACE = "github-tests-" + uuid4().hex
 OTHER_WORKSPACE = WORKSPACE + "-other"
@@ -238,7 +239,7 @@ def github(settings, monkeypatch, request):
 
     app = FastAPI()
     app.include_router(build_github_router(database, retrieval, identity, settings))
-    app.include_router(build_mission_router(database, identity))
+    app.include_router(build_mission_router(database, identity, settings))
     with TestClient(app) as client:
         yield client, database, calls, state, retrieval
     with database.engine.begin() as connection:
@@ -675,3 +676,115 @@ def test_pr_ci_panel_live_inbox_and_knowledge_freshness(github, settings):
     inbox = client.get("/api/mission", headers=admin()).json()["inbox"]
     titles = {item["title"] for item in inbox}
     assert titles == {"PR #5 merged", "Check failed: CI", "Push to main"}
+
+
+def test_merged_pr_stamps_ticket_and_lane_needs_customer_confirmation(github, settings):
+    import hashlib
+    import hmac
+
+    from supportpilot.agent_storage import AgentRunRow
+
+    client, database, _, _, _ = github
+    select_repo(github)
+    pr_url = "https://github.com/team/project/pull/9"
+    ticket_id, run_id = str(uuid4()), str(uuid4())
+    with database.session() as session:
+        session.add(
+            TicketRow(
+                id=ticket_id,
+                workspace_id=WORKSPACE,
+                payload={
+                    "id": ticket_id,
+                    "workspace_id": WORKSPACE,
+                    "subject": "Retries stop",
+                    "description": "Webhook retries stop after an upgrade.",
+                    "created_at": "2026-10-05T00:00:00+00:00",
+                },
+            )
+        )
+        run = {
+            "id": run_id,
+            "ticket_id": ticket_id,
+            "status": "completed",
+            "provider": "codex",
+            "task": "Fix it",
+            "created_at": "2026-10-05T00:00:00+00:00",
+            "started_at": "2026-10-05T00:01:00+00:00",
+            "completed_at": "2026-10-05T00:05:00+00:00",
+            "usage": {},
+            "log": [f"line {n}" for n in range(12)],
+            "artifacts": [
+                {"kind": "test_report", "label": "repro (red)"},
+                {"kind": "test_report", "label": "fix (green)"},
+                {"kind": "pull_request", "label": "Draft PR #9", "url": pr_url},
+            ],
+        }
+        session.add(AgentRunRow(id=run_id, workspace_id=WORKSPACE, status="completed", payload=run))
+        draft = {"outcome": "answer", "evidence_ids": []}
+        inv = {"id": "inv-1", "state": "awaiting_review", "draft": draft, "ticket_revision": 1}
+        session.add(
+            InvestigationRow(
+                id="inv-1",
+                ticket_id=ticket_id,
+                workspace_id=WORKSPACE,
+                idempotency_key="k",
+                created_at=datetime.now(UTC),
+                payload=inv,
+            )
+        )
+        session.commit()
+    settings.github_webhook_secret = SecretStr("s")
+    pull = {"number": 9, "merged": True, "html_url": pr_url, "merged_at": "2026-10-06T00:00:00Z"}
+    body = json.dumps({"action": "closed", "pull_request": pull, "repository": REPO}).encode()
+    signature = "sha256=" + hmac.new(b"s", body, hashlib.sha256).hexdigest()
+    sent = client.post(
+        "/api/github/webhook",
+        content=body,
+        headers={"x-github-event": "pull_request", "x-hub-signature-256": signature},
+    )
+    assert sent.status_code == 200, sent.text
+    with database.session() as session:
+        ticket = session.get(TicketRow, ticket_id).payload
+        queued = next(t for t in queue_items(session, WORKSPACE) if t["id"] == ticket_id)
+    # A merge stamp is metadata: the revision holds, so the pending draft stays approvable.
+    assert ticket["fix_merged_at"].startswith("2026-10-06") and ticket["revision"] == 1
+    assert queued["review_status"] == "pending"
+    assert ticket["status"] == "open"  # resolve_on_merge is off by default.
+    lane = next(
+        item
+        for item in client.get("/api/mission", headers=admin()).json()["lanes"]
+        if item["ticket_id"] == ticket_id
+    )
+    assert lane["steps"][-4:] == ["red", "green", "pr", "merged"]
+    assert lane["customer_confirmed"] is False and lane["log_tail"][-1] == "line 11"
+    assert len(lane["log_tail"]) == 8
+
+    settings.resolve_on_merge_workspaces = [WORKSPACE]
+    with database.session() as session:
+        row = session.get(AgentRunRow, run_id)
+        row.payload = {**run, "review": {"customer_confirmed": True}}
+        session.commit()
+    client.post(
+        "/api/github/webhook",
+        content=body,
+        headers={"x-github-event": "pull_request", "x-hub-signature-256": signature},
+    )
+    with database.session() as session:
+        assert session.get(TicketRow, ticket_id).payload["status"] == "resolved"
+    lanes = client.get("/api/mission", headers=admin()).json()["lanes"]
+    assert next(i for i in lanes if i["ticket_id"] == ticket_id)["customer_confirmed"] is True
+
+
+def test_lane_red_needs_reproduction_and_green_needs_merge():
+    ticket = {"id": "t", "subject": "s", "status": "open", "latest_investigation_id": None}
+    ticket["latest_outcome"] = None
+    run = {
+        "id": "r",
+        "status": "failed",
+        "error": "not_reproduced: the new test already passes",
+        "started_at": "2026-10-05T00:01:00+00:00",
+        "review": {"customer_confirmed": True},
+        "artifacts": [{"kind": "test_report", "label": "repro (red)"}],
+    }
+    unmerged = lane(ticket, run)
+    assert "red" not in unmerged["steps"] and unmerged["customer_confirmed"] is False

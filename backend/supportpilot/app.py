@@ -17,7 +17,8 @@ from supportpilot.github import build_github_router
 from supportpilot.knowledge import build_knowledge_router
 from supportpilot.mission import build_mission_router
 from supportpilot.notifications import notify
-from supportpilot.operations import build_operations_router
+from supportpilot.operations import build_operations_router, record_activity
+from supportpilot.policy import bucket, states
 from supportpilot.provider import Provider
 from supportpilot.redaction import redact
 from supportpilot.retention import purge_expired
@@ -224,6 +225,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ticket_revision=ticket.revision,
                 created_at=datetime.now(UTC),
                 mode=settings.mode,
+                provider=None
+                if settings.mode == "fixture"
+                else settings.cli_agent
+                if settings.llm_provider == "cli"
+                else settings.llm_provider,
             )
             session.add(
                 InvestigationRow(
@@ -255,6 +261,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             and not (settings.mode == "live" and isinstance(tools, Tools)),
         )
         with database.session() as session:
+            if investigation.draft:
+                # Shadow mode: record what the policy would do, enabled or not, so it keeps score.
+                key = bucket(investigation.model_dump(mode="json"))
+                state = states(session, caller["workspace_id"], settings).get(key)
+                investigation.shadow_decision = "approve" if state == "auto" else "hold"
             row = session.get(InvestigationRow, investigation.id)
             row.payload = investigation.model_dump(mode="json")
             session.commit()
@@ -313,6 +324,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             investigation = Investigation.model_validate(parent.payload)
             if investigation.state != "awaiting_review" or investigation.draft is None:
                 raise HTTPException(409, "No reviewable draft exists")
+            # A human may overrule the autopilot's policy review of the same draft revision.
+            # The ticket check is skipped then: the autopilot itself marks the ticket resolved.
+            policy_review = session.scalar(
+                select(ReviewRow).where(
+                    ReviewRow.investigation_id == investigation_id,
+                    ReviewRow.draft_revision == payload.draft_revision,
+                )
+            )
+            if not (
+                policy_review
+                and policy_review.payload.get("reviewer_kind") == "policy"
+                and payload.reviewer_kind == "human"
+            ):
+                policy_review = None
             ticket_row = session.scalar(
                 select(TicketRow)
                 .where(
@@ -321,10 +346,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
                 .with_for_update()
             )
-            if (
-                ticket_row is None
-                or Ticket.model_validate(ticket_row.payload).revision
-                != investigation.ticket_revision
+            if ticket_row is None or (
+                Ticket.model_validate(ticket_row.payload).revision != investigation.ticket_revision
+                and policy_review is None
             ):
                 raise HTTPException(
                     409,
@@ -332,6 +356,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
             if payload.draft_revision != investigation.draft_revision:
                 raise HTTPException(409, "Stale draft revision")
+            key = bucket(parent.payload)
+            state = states(session, caller["workspace_id"], settings).get(key)
+            # The AUTO gate lives here, not only in the autopilot client.
+            if (
+                payload.reviewer_kind == "policy"
+                and payload.decision == "approve"
+                and caller["workspace_id"] in settings.autonomy_workspaces
+                and state != "auto"
+            ):
+                raise HTTPException(403, "Autonomy has not been earned for this kind of draft")
+            if policy_review is not None:
+                session.delete(policy_review)
+                session.flush()
             review = Review(
                 **payload.model_dump(),
                 id=str(uuid4()),
@@ -348,6 +385,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     payload=review.model_dump(mode="json"),
                 )
             )
+            if (
+                payload.reviewer_kind == "human"
+                and payload.decision == "reject"
+                and state == "auto"
+            ):
+                record_activity(
+                    session,
+                    caller["workspace_id"],
+                    investigation.ticket_id,
+                    "autonomy_demoted",
+                    "Autonomy demoted to shadow",
+                    f"{caller['reviewer_id']} rejected a draft the policy would have approved: "
+                    + key,
+                )
             try:
                 session.commit()
             except IntegrityError as exc:
@@ -358,7 +409,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(build_accounts_router(database, settings, identity))
     app.include_router(build_github_router(database, retrieval, identity, settings))
     app.include_router(build_agent_router(database, identity, settings))
-    app.include_router(build_mission_router(database, identity))
+    app.include_router(build_mission_router(database, identity, settings))
     app.include_router(build_operations_router(database, identity, settings))
     app.include_router(build_knowledge_router(database, retrieval, identity, settings))
 

@@ -30,7 +30,20 @@ export type WorkItem = {
   since: string | null;
   ref: { type: "run" | "ticket"; id: string };
 };
+export type Lane = {
+  ticket_id: string;
+  subject: string;
+  status: string;
+  steps: string[];
+  run_id: string | null;
+  run_status: string | null;
+  pr_url: string | null;
+  fix_merged_at: string | null;
+  customer_confirmed: boolean;
+  log_tail: string[];
+};
 export type Mission = {
+  lanes: Lane[];
   pipeline: Record<string, number>;
   work_queue: WorkItem[];
   reliability: {
@@ -44,6 +57,18 @@ export type Mission = {
     by_provider: Record<string, Record<string, number>>;
   };
   inbox: { id: string; title: string; detail: string; created_at: string }[];
+  autonomy: {
+    enabled: boolean;
+    min_n: number;
+    min_lower_bound: number;
+    buckets: {
+      key: string;
+      agreed: number;
+      n: number;
+      lower_bound: number;
+      state: "auto" | "shadow";
+    }[];
+  };
   knowledge: {
     id: string;
     title: string;
@@ -93,6 +118,16 @@ export const KIND_ICON: Record<string, typeof Inbox> = {
   changes_requested: AlertTriangle,
   unassigned: CircleDot,
 };
+const LANE_STEPS = [
+  ["created", "Created"],
+  ["investigated", "Investigated"],
+  ["escalated", "Escalated"],
+  ["claimed", "Runner claimed"],
+  ["red", "Red"],
+  ["green", "Green"],
+  ["pr", "PR opened"],
+  ["merged", "Merged"],
+] as const;
 const percent = (value: number | null) =>
   value == null ? "—" : Math.round(value * 100) + "%";
 
@@ -122,8 +157,8 @@ export function MissionControl({
   }
   useEffect(() => {
     load().catch((e) => onError(e.message));
-    // ponytail: 10 s polling; switch to server-sent events if the inbox needs sub-second updates.
-    const timer = setInterval(() => load().catch(() => undefined), 10000);
+    // ponytail: 5 s polling; switch to server-sent events if lanes need sub-second updates.
+    const timer = setInterval(() => load().catch(() => undefined), 5000);
     return () => clearInterval(timer);
   }, []);
 
@@ -169,6 +204,86 @@ export function MissionControl({
           ))}
         </ol>
       </section>
+
+      <Card>
+        <CardContent>
+          <SectionHeading
+            title="Flight board"
+            detail="Each ticket from complaint to merged fix. A merge never resolves a ticket or messages the customer; the lane turns green only when the customer confirms."
+          />
+          {mission.lanes.length ? (
+            <div className="flight-board" role="list">
+              {mission.lanes.map((lane) => {
+                const tone = lane.customer_confirmed
+                  ? " confirmed"
+                  : lane.fix_merged_at
+                    ? " merged"
+                    : "";
+                return (
+                  <div
+                    key={lane.ticket_id}
+                    className={"flight-lane" + tone}
+                    role="listitem"
+                  >
+                    <button
+                      className="flight-ticket"
+                      onClick={() => onOpenTicket(lane.ticket_id)}
+                    >
+                      <strong>{lane.subject}</strong>
+                      <span>
+                        {lane.customer_confirmed
+                          ? "Customer confirmed the fix"
+                          : lane.fix_merged_at
+                            ? "Fix merged, awaiting customer confirmation"
+                            : lane.status.replace("_", " ")}
+                      </span>
+                    </button>
+                    {LANE_STEPS.map(([key, label]) => {
+                      const live =
+                        key === "claimed" && lane.run_status === "running";
+                      return (
+                        <div
+                          key={key}
+                          className={
+                            "flight-step" +
+                            (lane.steps.includes(key) ? " done" : "") +
+                            (live ? " live" : "")
+                          }
+                          tabIndex={
+                            live && lane.log_tail.length ? 0 : undefined
+                          }
+                        >
+                          <span className="flight-dot" aria-hidden="true" />
+                          {key === "pr" && lane.pr_url ? (
+                            <a
+                              href={lane.pr_url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {label}
+                            </a>
+                          ) : (
+                            <small>{label}</small>
+                          )}
+                          {live && !!lane.log_tail.length && (
+                            <pre className="flight-log" role="tooltip">
+                              {lane.log_tail.join("\n")}
+                            </pre>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <Empty title="No tickets yet">
+              Lanes appear as tickets arrive and move toward a merged fix.
+            </Empty>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="mission-grid">
         <Card className="mission-queue">
@@ -297,12 +412,52 @@ export function MissionControl({
         </CardContent>
       </Card>
 
+      <Card>
+        <CardContent>
+          <SectionHeading
+            title="Autonomy ladder"
+            detail={`Autopilot approves a kind of draft only after ${mission.autonomy.min_n}+ human reviews with a ${percent(mission.autonomy.min_lower_bound)} agreement lower bound. One rejection drops it back to shadow. ${mission.autonomy.enabled ? "On for this workspace." : "Off for this workspace: shadow scoring only."}`}
+          />
+          {mission.autonomy.buckets.length ? (
+            <table className="mission-table">
+              <thead>
+                <tr>
+                  <th>Kind of draft</th>
+                  <th>Humans agreed</th>
+                  <th>Lower bound</th>
+                  <th>State</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mission.autonomy.buckets.map((b) => (
+                  <tr key={b.key}>
+                    <td>{b.key}</td>
+                    <td>
+                      {b.agreed}/{b.n}
+                    </td>
+                    <td>{percent(b.lower_bound)}</td>
+                    <td>
+                      <StateBadge value={b.state} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <Empty title="No human reviews yet">
+              Approve or reject drafts to start scoring each kind of draft.
+              Autopilot approvals never count.
+            </Empty>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="mission-grid">
         <Card>
           <CardContent>
             <SectionHeading
               title="Live activity"
-              detail="Pushes, pull requests, issues, and failed checks from the GitHub webhook."
+              detail="Pushes, pull requests, issues, and failed checks from the GitHub webhook, plus autonomy demotions."
               action={<Radio size={16} className="mission-live-icon" />}
             />
             {mission.inbox.length ? (
@@ -362,6 +517,19 @@ export function MissionControl({
   );
 }
 
+// The runner's red/green test reports, so nobody pastes test output by hand.
+function testSummary(run: AgentRun, label: string) {
+  const report = (run.artifacts || []).find(
+    (a) =>
+      typeof a === "object" && a.kind === "test_report" && a.label === label,
+  ) as Record<string, unknown> | undefined;
+  const last = String(report?.detail || "")
+    .trim()
+    .split("\n")
+    .pop();
+  return last ? `${label}: ${last}`.slice(0, 2000) : "";
+}
+
 function ReviewCard({
   run,
   api,
@@ -378,8 +546,8 @@ function ReviewCard({
   onOpen: () => void;
 }) {
   const [form, setForm] = useState({
-    tests_before: "",
-    tests_after: "",
+    tests_before: testSummary(run, "repro (red)"),
+    tests_after: testSummary(run, "fix (green)"),
     note: "",
     customer_confirmed: false,
   });

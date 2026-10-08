@@ -31,7 +31,7 @@ def test_review_ready_alert_and_metrics(client, headers, ticket_input, settings,
     third = client.post(path, headers={**headers, "Idempotency-Key": "alert-three"})
     assert third.status_code == 200 and len(sent) == 2
 
-    review = {"draft_revision": 1, "decision": "approve"}
+    review = {"draft_revision": 1, "decision": "approve", "reviewer_kind": "human"}
     assert client.post(
         f"/api/investigations/{second.json()['id']}/reviews", json=review, headers=headers
     ).status_code in (200, 201)

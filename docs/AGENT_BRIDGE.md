@@ -62,11 +62,40 @@ Every command accepts `--json`, and color turns off when output is piped or `NO_
 `supportpilot auto` (admin token) runs autopilot until you stop it with Ctrl-C. Each cycle:
 
 1. Investigates open tickets that have no draft yet (once per ticket, at most `--max-per-cycle 3`).
-2. Approves drafts whose outcome is *resolved* and that cite evidence, then marks the ticket resolved. Escalations and requests for information stay pending for a person (`--no-approve` to approve nothing).
-3. Queues one fix run per escalated ticket (`--agent codex|antigravity`), executes it in a worktree, and pushes its branch (`--no-fix` to skip).
+2. Approves drafts whose outcome is *resolved* and that cite evidence, then marks the ticket resolved. Escalations and requests for information stay pending for a person (`--no-approve` to approve nothing). With earned autonomy on (below), it approves only kinds of drafts that are AUTO instead.
+3. Queues one fix run per escalated ticket (`--agent codex|antigravity`), executes it in a worktree with red before green (below), and pushes its branch (`--no-fix` to skip).
 4. Opens a draft PR for each pushed run.
 
 `--once` runs a single cycle; `--interval` sets the pause between cycles (default 20 s). Autopilot stops at draft PRs: merging stays a human decision.
+
+### Earned autonomy
+
+Autonomy is opt-in per workspace (`SUPPORTPILOT_AUTONOMY_WORKSPACES=["demo"]`, off by default). Drafts are grouped by kind: outcome, citation band, tool statuses, and mode/provider. A kind becomes AUTO after `SUPPORTPILOT_AUTONOMY_MIN_N` human reviews (default 20) with a Wilson lower bound on agreement of at least `SUPPORTPILOT_AUTONOMY_MIN_LB` (default 0.9), and only while its latest human verdict is an approval. One human rejection drops it back to SHADOW and posts `autonomy_demoted` to the Mission inbox. Only human reviews count: autopilot approvals are stored with `reviewer_kind: "policy"`, labelled *(policy)* in the app, and excluded. The server refuses a policy approval for a kind that is not AUTO, and a person can still overrule one. In SHADOW, every draft records what the policy would have done, so the score keeps building. AUTO only approves the draft; replying to the customer stays a human step.
+
+The review API requires `reviewer_kind` (`"human"` or `"policy"`) on every review.
+
+### Replay evals
+
+```sh
+supportpilot evals --from-reviews --fail-below last [--limit 50]
+```
+
+Runs against the local database and settings. Every human approve/reject becomes a case, redacted, and is replayed with the stored evidence and recorded tool results frozen. It reports agreement with your reviewers, lists approved tickets the change flips, and exits 1 when agreement drops below the previous run (`last`) or a number. Run it before changing a prompt, model, or provider. In live mode each case is one model call. See [evals](../evals/README.md).
+
+### Red before green
+
+Fix runs on a ticket run in two phases in the same worktree. The test command must first pass on `HEAD` (or, for pytest, find no tests). Phase 1 may change only test files and the command must then fail (red); phase 2 fixes the code and the same command must pass (green). Phase 2 may not add, edit, stage, commit, or delete any test file or test config (`conftest.py`, `pytest.ini`, `pyproject.toml`, `setup.cfg`, `tox.ini`, `package.json`, `.gitignore`, jest/vitest/mocha config); checks compare against the phase 1 tree, not the index. All three outputs are attached as `test_report` artifacts and prefill *Tests before/after* in the review. If phase 1 cannot produce a failing test, the run fails with `not_reproduced` and nothing is pushed.
+
+The test command comes only from the runner: `--test-command "pytest -q"` on `run`, `watch`, or `auto`, or a committed `.supportpilot.toml`:
+
+```toml
+[tests]
+command = "pytest -q"
+```
+
+The test command executes agent-written code, so the bridge runs it inside Codex's own sandbox (`codex sandbox -P :workspace`: writes only to the worktree and temp, no network) with only `PATH`, `TMPDIR`, `LANG` and a throwaway `HOME`. It needs a Codex CLI with `codex sandbox -P`; the sandbox still allows reading local files, as the agent's does.
+
+The server never chooses it. Without a test command, and always for Antigravity (which cannot run terminal commands), fix runs are labelled *unverified*.
 
 ## Open a draft pull request
 

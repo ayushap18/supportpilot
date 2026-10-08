@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 import httpx
 
 from supportpilot import cli_bridge as bridge
+from supportpilot.agreement import AUTOPILOT_NOTE
+from supportpilot.policy import bucket
 
 FIX_TASK = (
     "Fix the issue described in the linked ticket if it is caused by code in this repository. "
@@ -259,6 +261,45 @@ def cmd_runs(args):
     print()
 
 
+def cmd_evals(args):
+    """Replay human-reviewed tickets locally against this server's database and settings."""
+    import asyncio
+
+    from supportpilot.config import ROOT, Settings
+    from supportpilot.storage import Database
+
+    sys.path.insert(0, str(ROOT))  # `evals/` lives beside the package in the checkout.
+    from evals.from_reviews import run
+
+    settings = Settings()
+    database = Database(settings.database_url)
+    database.initialize()  # Idempotent; an empty database reports "no reviews" cleanly.
+    try:
+        report, failure = asyncio.run(run(database, settings, args.limit, args.fail_below))
+    finally:
+        database.engine.dispose()
+    if args.json:
+        print(json.dumps({k: v for k, v in report.items() if k != "cases"}, indent=2))
+    else:
+        s = report["summary"]
+        print()
+        print(f"  {S.bold('Replay evals')}  {s['cases']} reviewed tickets · mode {report['mode']}")
+        print(f"  Agreement with reviewers  {S.bold(format(s['approval_agreement'], '.0%'))}"
+              f"  ·  outcomes reproduced {s['outcome_correct']}/{s['cases']}")  # fmt: skip
+        flipped = set(report["flipped"])
+        approved = [
+            r for r in report["cases"] if r["case_id"] in flipped and r["decision"] == "approve"
+        ]
+        if approved:
+            print(S.yellow(f"  This change flips {len(approved)} tickets humans approved:"))
+            for r in approved:
+                print(f"    {r['case_id']}  {r['expected_outcome']} → {r['actual_outcome']}")
+        print()
+    if failure:
+        print(S.red("✗"), failure)
+        return 1
+
+
 def cmd_auto(args):
     """Autopilot: investigate, approve, fix, and open draft PRs without a person in the loop."""
     api = Api(args.repository)
@@ -274,9 +315,9 @@ def cmd_auto(args):
     )
     steps = ["investigate new tickets"]
     if not args.no_approve:
-        steps.append("approve resolved drafts with sources")
+        steps.append("approve drafts by policy (earned autonomy, or resolved with sources)")
     if remote and not args.no_fix:
-        steps.append(f"fix escalations with {args.agent} → draft PR")
+        steps.append(f"fix escalations with {args.agent} → red/green tests → draft PR")
     print("  " + S.dim("does      ") + " · ".join(steps))
     print()
     try:
@@ -313,13 +354,23 @@ def autopilot_cycle(api, args, remote):
     if fresh:
         tickets = api("GET", "/queue", params={"page_size": 100})["items"]
 
-    # 2. Approve drafts that resolve the ticket and cite sources; mark the ticket resolved.
+    # 2. Approve drafts. With earned autonomy on for this workspace, only kinds of drafts that
+    # humans promoted to AUTO; otherwise the old rule: resolved drafts that cite sources.
+    # Approval is a policy review; resolved drafts also mark the ticket resolved.
     if not args.no_approve:
+        policy = api("GET", "/policy")
+        auto = {b["key"] for b in policy["buckets"] if b["state"] == "auto"}
         for ticket in [t for t in tickets if t["review_status"] == "pending"]:
             inv = api("GET", f"/investigations/{ticket['latest_investigation_id']}")
             draft = inv.get("draft") or {}
-            if draft.get("outcome") != "resolved" or not draft.get("evidence_ids"):
+            if policy["enabled"]:
+                if bucket(inv) not in auto:
+                    continue
+                reason = f"earned autonomy for {bucket(inv)}."
+            elif draft.get("outcome") != "resolved" or not draft.get("evidence_ids"):
                 continue
+            else:
+                reason = f"resolved with {len(draft['evidence_ids'])} cited sources."
             try:
                 api(
                     "POST",
@@ -327,16 +378,17 @@ def autopilot_cycle(api, args, remote):
                     json={
                         "draft_revision": inv["draft_revision"],
                         "decision": "approve",
-                        "note": f"Auto-approved by supportpilot autopilot: resolved with "
-                        f"{len(draft['evidence_ids'])} cited sources.",
+                        "reviewer_kind": "policy",
+                        "note": f"{AUTOPILOT_NOTE}: {reason}",
                     },
                 )
-                api(
-                    "PATCH",
-                    f"/tickets/{ticket['id']}",
-                    json={"expected_revision": ticket["revision"], "status": "resolved"},
-                )
-                log("✓", f"Approved and resolved {S.bold(short(ticket['id']))}", S.green)
+                if draft["outcome"] == "resolved":
+                    api(
+                        "PATCH",
+                        f"/tickets/{ticket['id']}",
+                        json={"expected_revision": ticket["revision"], "status": "resolved"},
+                    )
+                log("✓", f"Approved by policy {S.bold(short(ticket['id']))}", S.green)
             except ApiError as exc:
                 log("✗", f"Could not approve {short(ticket['id'])}: {exc}", S.red)
 
@@ -368,7 +420,14 @@ def autopilot_cycle(api, args, remote):
 
     # 4. Execute queued runs here, with edits and push enabled on this machine.
     if any(r["status"] == "queued" for r in api("GET", "/agents/runs")["items"]):
-        bridge.watch(args.repository, allow_edits=True, push=True, timeout=args.timeout, once=True)
+        bridge.watch(
+            args.repository,
+            allow_edits=True,
+            push=True,
+            timeout=args.timeout,
+            once=True,
+            tests=args.test_command,
+        )
 
     # 5. Open a draft PR for every completed run whose branch was pushed.
     for run in api("GET", "/agents/runs")["items"]:
@@ -421,6 +480,18 @@ def main(argv=None):
     p.add_argument("ticket", help="ticket ID or prefix, e.g. TKT-BE421F")
     p.add_argument("--json", action="store_true")
 
+    p = add("evals", "replay human-reviewed tickets and score agreement with reviewers", cmd_evals)
+    p.add_argument("--from-reviews", action="store_true", required=True,
+                   help="build cases from reviews in the local database")  # fmt: skip
+    p.add_argument("--limit", type=int, help="newest N reviews (each costs a live model call)")
+    p.add_argument(
+        "--fail-below",
+        metavar="last|0.9",
+        type=lambda v: v if v == "last" else float(v),
+        help="exit 1 if agreement drops below the latest run or a number",
+    )
+    p.add_argument("--json", action="store_true")
+
     p = add("auto", "autopilot: investigate, approve, fix, and open draft PRs", cmd_auto)
     p.add_argument("--agent", default="codex", choices=["codex", "antigravity"],
                    help="agent for fix runs (default: codex)")  # fmt: skip
@@ -429,26 +500,31 @@ def main(argv=None):
     p.add_argument("--timeout", type=int, default=900, help="agent run time limit in seconds")
     p.add_argument("--no-approve", action="store_true", help="leave drafts for a person")
     p.add_argument("--no-fix", action="store_true", help="do not queue agent fix runs")
+    p.add_argument("--test-command", help="red/green test command (else .supportpilot.toml)")
     p.add_argument("--once", action="store_true", help="run one cycle and exit")
 
     p = add("watch", "run queued agent work from the app on this machine",
             lambda a: bridge.watch(a.repository, a.allow_edits, a.push, a.interval, a.timeout,
-                                   a.once))  # fmt: skip
+                                   a.once, a.test_command))  # fmt: skip
     p.add_argument("--allow-edits", action="store_true")
     p.add_argument("--push", action="store_true")
     p.add_argument("--interval", type=int, default=10)
     p.add_argument("--timeout", type=int, default=900)
     p.add_argument("--once", action="store_true")
+    p.add_argument("--test-command", help="red/green test command (else .supportpilot.toml)")
 
     p = add(
         "run",
         "execute one queued agent run",
-        lambda a: bridge.run_bridge(a.run_id, a.repository, a.allow_edits, a.timeout, a.push),
+        lambda a: bridge.run_bridge(
+            a.run_id, a.repository, a.allow_edits, a.timeout, a.push, a.test_command
+        ),
     )
     p.add_argument("run_id")
     p.add_argument("--allow-edits", action="store_true")
     p.add_argument("--push", action="store_true")
     p.add_argument("--timeout", type=int, default=900)
+    p.add_argument("--test-command", help="red/green test command (else .supportpilot.toml)")
 
     add("login", "save this workspace's token for the checkout (once)",
         lambda a: bridge.login(a.repository))  # fmt: skip

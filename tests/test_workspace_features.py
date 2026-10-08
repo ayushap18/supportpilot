@@ -144,6 +144,7 @@ def test_ticket_lifecycle_notes_review_revision_and_dashboard(workspace, ticket_
         review = {
             "draft_revision": inv["draft_revision"],
             "decision": "approve",
+            "reviewer_kind": "human",
             "note": "Checked evidence",
         }
         assert (

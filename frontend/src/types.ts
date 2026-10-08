@@ -61,6 +61,7 @@ export type Review = {
   decision: "approve" | "reject";
   note: string;
   reviewer_id: string;
+  reviewer_kind?: "human" | "policy";
   created_at: string;
   draft_revision: number;
 };
