@@ -11,7 +11,7 @@
 - **No API keys required.** Live investigations can run through your logged-in Claude Code, Codex, or Antigravity CLI. The Claude API and OpenAI work too, if you prefer keys.
 - **Code stays on your machine.** The server never runs repository code. A runner you start locally does the agent work in your own checkout.
 - **Every answer is checkable.** Drafts cite the exact documents and tool results they used, with a step-by-step trace.
-- **A person always decides.** Drafts and agent results wait for review. Nothing is sent to customers or merged automatically.
+- **A person decides, or autopilot within limits.** Drafts and agent results wait for review unless you run `supportpilot auto`, which approves only cited resolutions. Nothing is sent to customers or merged automatically.
 
 ## What it does
 
@@ -104,6 +104,8 @@ cd ~/code/your-repo
 supportpilot login                 # once: saves this workspace's token (owner-only file)
 supportpilot watch --allow-edits   # leave running; queued runs start automatically
 ```
+
+Or let it run unattended: `supportpilot auto` investigates new tickets, approves cited *resolved* drafts, sends escalations to Codex for a fix, and opens draft PRs. `supportpilot status`, `tickets`, `investigate`, and `runs` cover the rest from the terminal.
 
 Drop `--allow-edits` for read-only analysis. Add `--push` so edit runs push their branch and you can open a draft PR. Claude Code runs are analysis-only. Details: [Agent bridge](docs/AGENT_BRIDGE.md).
 

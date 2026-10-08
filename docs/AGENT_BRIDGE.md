@@ -15,7 +15,7 @@ Edit runs (Codex with **Allow edits**, and Antigravity) get a dedicated `support
 
 ## The `supportpilot` command
 
-`pip install -e .` installs a `supportpilot` command in the project environment (equivalent to `python -m supportpilot.cli_bridge`). To use it from any terminal, link it onto your PATH once:
+`pip install -e .` installs a `supportpilot` command in the project environment (`python -m supportpilot.cli`). To use it from any terminal, link it onto your PATH once:
 
 ```sh
 ln -sf "$PWD/.venv/bin/supportpilot" ~/.local/bin/supportpilot
@@ -45,6 +45,28 @@ supportpilot watch --repository /absolute/path/to/repository   # or run it insid
 - `--once` processes the queue a single time, which is useful in scripts.
 
 While a run executes, the bridge streams short, redacted progress lines (the last 300 are kept) that appear as a **Live log** in the run details. Progress is best effort; the final result is submitted either way.
+
+## Run the whole loop unattended (`auto`)
+
+Besides `login`, `watch`, and `run`, the command reads the workspace from the terminal:
+
+```sh
+supportpilot status                      # server, mode, runners, pipeline, what needs you
+supportpilot tickets [--review pending]  # tickets with their review state
+supportpilot investigate TKT-18A211      # draft a cited answer for one ticket
+supportpilot runs                        # recent agent runs
+```
+
+Every command accepts `--json`, and color turns off when output is piped or `NO_COLOR` is set.
+
+`supportpilot auto` (admin token) runs autopilot until you stop it with Ctrl-C. Each cycle:
+
+1. Investigates open tickets that have no draft yet (once per ticket, at most `--max-per-cycle 3`).
+2. Approves drafts whose outcome is *resolved* and that cite evidence, then marks the ticket resolved. Escalations and requests for information stay pending for a person (`--no-approve` to approve nothing).
+3. Queues one fix run per escalated ticket (`--agent codex|antigravity`), executes it in a worktree, and pushes its branch (`--no-fix` to skip).
+4. Opens a draft PR for each pushed run.
+
+`--once` runs a single cycle; `--interval` sets the pause between cycles (default 20 s). Autopilot stops at draft PRs: merging stays a human decision.
 
 ## Open a draft pull request
 

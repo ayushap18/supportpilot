@@ -53,12 +53,13 @@ def queue_items(session, workspace_id):
         inv = latest.get(row.id)
         review_status = "none"
         if inv and inv.get("draft") and inv["state"] == "awaiting_review":
-            if inv.get("ticket_revision", 1) != ticket.revision:
-                review_status = "stale"
-            elif inv["id"] in reviewed:
+            # A recorded decision stands even if the ticket changed afterwards (e.g. resolved).
+            if inv["id"] in reviewed:
                 review_status = (
                     "approved" if reviewed[inv["id"]]["decision"] == "approve" else "rejected"
                 )
+            elif inv.get("ticket_revision", 1) != ticket.revision:
+                review_status = "stale"
             else:
                 review_status = "pending"
         items.append(

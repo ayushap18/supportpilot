@@ -195,3 +195,23 @@ def test_live_application_disables_synthetic_tools(client, headers, ticket_input
     assert result.status_code == 200 and observed == [False]
     assert client.get("/api/examples", headers=headers).json() == []
     assert client.get("/api/operations", headers=headers).json()["tool_mode"] == "disabled"
+
+
+def test_review_decision_survives_later_ticket_edits(client, headers, ticket_input):
+    ticket = client.post("/api/tickets", headers=headers, json=ticket_input).json()
+    inv = client.post(
+        "/api/tickets/" + ticket["id"] + "/investigations",
+        headers={**headers, "Idempotency-Key": "review-then-resolve"},
+    ).json()
+    client.post(
+        f"/api/investigations/{inv['id']}/reviews",
+        headers=headers,
+        json={"draft_revision": 1, "decision": "approve"},
+    )
+    client.patch(
+        "/api/tickets/" + ticket["id"],
+        headers=headers,
+        json={"expected_revision": ticket["revision"], "status": "resolved"},
+    )
+    item = client.get("/api/queue", headers=headers).json()["items"][0]
+    assert item["status"] == "resolved" and item["review_status"] == "approved"
